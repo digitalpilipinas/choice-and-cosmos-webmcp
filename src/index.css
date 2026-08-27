@@ -16,16 +16,17 @@
   --warn-dim: rgba(212, 161, 148, 0.16);
   --focus: #f0d7a8;
   --shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
-  --sans: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
-  --ui: system-ui, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  --sans: "Iowan Old Style", "Palatino Linotype", palatino, georgia, serif;
+  --ui: system-ui, "Segoe UI", roboto, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", consolas, monospace;
   --radius: 14px;
   --space: 1.25rem;
+
   font: 17px/1.55 var(--ui);
   color: var(--text);
   background: var(--bg);
   font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  text-rendering: optimizelegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

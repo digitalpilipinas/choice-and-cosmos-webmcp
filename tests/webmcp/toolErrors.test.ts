@@ -26,16 +26,19 @@ function withFocus(focus = 'finish the draft'): AppState {
 describe('WebMCP argument, consent, and fallback errors', () => {
   it('rejects an unknown tool name without mutating session text', () => {
     const state = withFocus('secret worry')
-    const { result } = apply(state, 'not_a_tool')
+    const { result, state: nextState } = apply(state, 'not_a_tool')
     expect(result).toMatchObject({ ok: false, code: 'invalid_input' })
     expect(JSON.stringify(result)).not.toContain('secret worry')
+    expect(nextState).toEqual(state)
   })
 
   it('rejects a bad horizon before generating', () => {
-    const { result } = apply(withFocus(), 'generate_forecast', {
+    const state = withFocus()
+    const { result, state: nextState } = apply(state, 'generate_forecast', {
       horizon: 'forever',
     })
     expect(result).toMatchObject({ ok: false, code: 'invalid_input' })
+    expect(nextState).toEqual(state)
   })
 
   it('returns no_forecast and no_plan when memory is empty', () => {

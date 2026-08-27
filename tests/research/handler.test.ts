@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-import { handleResearchRequest } from '../../server/research/handler.ts'
+import { handleResearchRequest, MAX_RESEARCH_BODY_BYTES } from '../../server/research/handler.ts'
 import { GEMINI_INTERACTIONS_URL } from '../../server/research/gemini.ts'
 
 const TEST_KEY = 'sk-test-gemini-not-real-xyz'
@@ -51,6 +51,33 @@ describe('research handler', () => {
       outcome: 'error',
       code: 'invalid_input',
     })
+  })
+
+  it('returns invalid_input for an over-limit body without echoing the payload', async () => {
+    const oversized = `${'{"pad":"'}${'x'.repeat(MAX_RESEARCH_BODY_BYTES)}}`
+    expect(new TextEncoder().encode(oversized).byteLength).toBeGreaterThan(
+      MAX_RESEARCH_BODY_BYTES,
+    )
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: oversized,
+      }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as {
+      outcome: string
+      code: string
+      reason: string
+    }
+    expect(body).toEqual({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Body exceeds the maximum allowed size.',
+    })
+    expect(JSON.stringify(body)).not.toContain('xxxx')
   })
 
   it('returns fixture evidence without credentials', async () => {

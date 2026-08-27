@@ -1,6 +1,6 @@
-# Choice & Cosmos: P0, P1, and P2 specification
+# Choice & Cosmos: P0 through P5 specification
 
-This file describes the data model and constraints for the P0 foundation, the fixture preview, the P1 local persistence and choice-plan editor, the P2 WebMCP tool layer, and the P3 server-only research adapter. It is the reference for what the code in `src/domain/`, `src/fixtures/`, `src/persistence/`, `src/webmcp/`, `src/research/`, and `server/research/` must stay true to as later phases build on it.
+This file describes the data model and constraints for the P0 foundation and fixture preview, the P1 local persistence and choice editor, the P2 WebMCP tools, the P3 research adapter, the P4 synthesis and charts, and the P5 hardening. It is the reference for what the code in `src/domain/`, `src/fixtures/`, `src/persistence/`, `src/webmcp/`, `src/research/`, and `server/research/` must stay true to as later phases build on it.
 
 ## The product loop
 
@@ -168,7 +168,7 @@ type ExternalShareState =
   | { kind: 'denied'; destination: 'gemini-research' }
 ```
 
-`DerivedProfile` never carries a birth date, birth time, or birth location. That stays true in every later phase, not only P0.
+`DerivedProfile` never carries a birth date, birth time, or birth location. That stays true through the current P0 through P5 scope.
 
 `ForecastCockpit` and `UncertaintyState` are derived view models. They are not stored on `ForecastFixture` or `StoredSessionV1`. `forecastCockpit(horizon, profile, forecast)` takes `name` from `HORIZON_BY_ID[horizon].label` only. `uncertaintyFor(forecast)` is `unavailable` when the forecast is missing, `ready` when `coverage.sourcesUsed` is above zero, and `partial` otherwise. Source comes from `coverage.mode`. Limitations copy says the run used fixture or manual data, not live research, and must not read as a confidence score.
 
@@ -182,7 +182,7 @@ These carry forward from the project's implementation plan and apply to every ph
 
 - Astrology, Human Design, numerology, tarot and oracle, personality, and elemental systems are always labeled as interpretive or reflective frameworks, never as objective certainty.
 - No lottery probabilities, no fake precision percentages, no deterministic predictions, no medical diagnosis or treatment, no financial advice.
-- No raw birth date, birth time, or birth location by default, or in P0, at all. A later phase that adds optional personal-data access must make that access explicit and confirmed, never silent.
+- No raw birth date, birth time, or birth location is collected in the current P0 through P5 scope. A later approved phase that added optional personal-data access would require explicit, confirmed consent, never silent.
 - Personal profile access, profile changes, external sharing, and choice-plan saving all require clear, scoped, revocable confirmation once those features exist. P0 has none of them yet: everything lives in memory for the current session only. P1 adds consent-gated local saving of the session in this browser only. It is still explicit, informed, and revocable. There is still no account and no cloud copy.
 - API secrets, once a phase introduces them, stay server-side. Never in a client bundle, a log, a screenshot, a fixture, or a commit.
 - Web pages, search results, retrieved documents, and agent arguments are untrusted input once real research exists. Source text never overrides tool policy or a consent boundary.
@@ -199,7 +199,7 @@ WebMCP tool registration, Gemini or any other network-backed research, IndexedDB
 
 P1 adds a local session copy and a way to add or remove personal choice-plan steps. It does not add WebMCP, Gemini, raw birth data, an account, or cloud sync.
 
-Saving uses IndexedDB in this browser profile only. Bootstrap never starts a save on its own. The first write happens after the person grants consent. Decline is remembered so the prompt stays quiet, and a later grant is still allowed. Clear erases the stored session and the consent flag. Nothing is described as synced, shared, backed up, or durable beyond this profile.
+Saving uses IndexedDB in this browser profile only. Bootstrap never starts a save on its own. The first write happens after the person grants consent. Decline is remembered so the prompt stays quiet and future saving stops, without erasing any existing stored session. A later grant is still allowed. Clear erases the stored session and the consent flag. Nothing is described as synced, shared, backed up, or durable beyond this profile.
 
 `PersistenceStatus` is the live consent and save state. `StoredSessionV1` is the document written after consent. `held` means a stored copy exists and this tab is not using it, so that copy was not loaded. `error.operation` is `'save'`, `'decline'`, or `'erase'`. `hasPersistenceConsent` is true for `saving`, `saved`, and `error` except when `operation` is `'decline'`. It is false for `checking`, `unavailable`, `undecided`, `held`, and `declined`. Autosave runs only while consent is true, and it also stays off after an erase failure so the erase control remains. A late `PERSISTENCE_HELD` does not replace `saving`, `saved`, or a save `error`. `RESTART` from `saving`, `saved`, or a save `error` moves persistence to `held` so autosave does not replace the stored session. Late `PERSISTENCE_SAVE_START`, `PERSISTENCE_SAVE_SUCCESS`, and save-operation `PERSISTENCE_SAVE_ERROR` do not replace `held`. An in-flight grant write may still finish. The new tab stays `held` and does not autosave over that copy. Agent plan-save may offer a local-save checkbox only when persistence is not `checking` and not `unavailable`, and not already consented. Approving that checkbox during `checking` does not grant or write.
 

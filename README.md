@@ -33,7 +33,7 @@ P0 shipped the foundation and fixture preview. P1 added local, consent-gated, re
 - No client bundle contains a Gemini key, an `x-goog-api-key` header, or the server adapter. External-share approval is stored as `approved_not_sent` and still does not send data.
 - Research without `GEMINI_API_KEY` uses local fixture evidence. Manual mode accepts user-supplied http(s) links, caps them, and does not fetch or forward their content.
 - No account system or cloud sync. The app never sends your input anywhere from the browser.
-- No raw birth data collection, ever, at any phase.
+- No raw birth date, birth time, or birth location is collected anywhere in the current P0 through P5 scope. Any later approved phase that added optional personal-data access would require explicit, confirmed consent.
 - No lottery-style probabilities, fake precision, deterministic predictions, or medical or financial advice.
 
 P1 stores a session only after you opt in, only in this browser profile, and only until you turn it off and erase it. An agent plan-save confirmation is a separate Approve on a modal dialog. Other page controls stay inert until you Approve or Deny. Turning on the local copy is a second checkbox on that dialog, not implied by the plan approval.
@@ -56,7 +56,7 @@ P0 shipped the foundation and fixture preview. P1 added local persistence and a 
 
 ## P3 research adapter
 
-The browser never holds a provider key. Set `GEMINI_API_KEY` only in the server environment. Do not put a key value in the client, a fixture, a log, or a commit. The optional name `GEMINI_API_KEY` is the only secret-related identifier this repo documents.
+The browser never holds a provider key. Set `GEMINI_API_KEY` only in the server environment. Do not put a key value in the client, a fixture, a log, or a commit. The optional name `GEMINI_API_KEY` is the only documented environment-variable name.
 
 When that variable is set, `handleResearchRequest` in `server/research/handler.ts` may call the official Gemini Interactions API with `tools: [{ type: "google_search" }]`. This run does not make that live call. Tests inject `fetch` and a fake key.
 
@@ -90,7 +90,7 @@ P5 does not change the loop, the eight-tool catalog, or the stored forecast shap
 
 **Setup.** `npm install`, `npm run dev`, `npm test -- --run`, and `npm run build`. CI in `.github/workflows/ci.yml` runs those checks with `npm ci`. No repository secrets are required.
 
-**Privacy.** Typed focus text, tone, and optional local IndexedDB stay in this browser profile. There is no account and no cloud sync. Decline and Clear erase the local copy. External share approval is `approved_not_sent`.
+**Privacy.** Typed focus text, tone, and optional local IndexedDB stay in this browser profile. There is no account and no cloud sync. Decline remembers the preference and stops future saving without erasing any existing stored session. Clear erases the local session and the consent flag. External share approval is `approved_not_sent`.
 
 **Consent.** Profile read, profile update, plan save, and external share wait for on-page Approve. Deny is a first-class result. Local saving is a separate checkbox on plan save.
 

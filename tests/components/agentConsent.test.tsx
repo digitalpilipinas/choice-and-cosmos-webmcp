@@ -38,7 +38,7 @@ describe('agent fallback and confirmation UI', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('registers the stable catalog and rejects then approves profile access', async () => {
+  it('opens the personal-data confirmation gate, verifies the human-facing diff, and then denies the request', async () => {
     const registered = new Map<string, ModelContextTool>()
     const modelContext = {
       registerTool: async (tool: ModelContextTool) => {

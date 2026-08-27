@@ -329,6 +329,26 @@ describe('draft_choice_plan and request_plan_save', () => {
       sessionPersist: 'unchanged',
     })
   })
+
+  it('stores the same trimmed add_step title in the result and the plan', () => {
+    const { result, state } = apply(withForecast(), 'draft_choice_plan', {
+      action: 'add_step',
+      title: '  keep one block  ',
+    })
+    expect(result).toEqual({
+      ok: true,
+      data: { title: 'keep one block', userNote: '' },
+    })
+    const custom = state.plansByHorizon.daily?.steps.filter(
+      (step) => step.origin === 'custom',
+    )
+    expect(custom).toEqual([
+      expect.objectContaining({
+        title: 'keep one block',
+        origin: 'custom',
+      }),
+    ])
+  })
 })
 
 describe('request_external_share', () => {

@@ -358,9 +358,17 @@ function draftChoicePlan(
     if (userNote === null) {
       return invalid('userNote must be a string.')
     }
+    const cleanTitle = title.trim()
     return {
-      result: { ok: true, data: { title: title.trim(), userNote } },
-      actions: [{ type: 'ADD_CUSTOM_STEP', stepId: createCustomStepId(), title, userNote }],
+      result: { ok: true, data: { title: cleanTitle, userNote } },
+      actions: [
+        {
+          type: 'ADD_CUSTOM_STEP',
+          stepId: createCustomStepId(),
+          title: cleanTitle,
+          userNote,
+        },
+      ],
     }
   }
 
