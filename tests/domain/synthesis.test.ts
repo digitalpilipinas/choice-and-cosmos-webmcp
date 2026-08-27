@@ -24,8 +24,8 @@ const profile: DerivedProfile = {
 }
 
 describe('synthesis', () => {
-  it('keeps live research unmounted and never invents a live URL', () => {
-    expect(LIVE_RESEARCH_MOUNTED).toBe(false)
+  it('keeps fixture cards without live URLs after the research route is mounted', () => {
+    expect(LIVE_RESEARCH_MOUNTED).toBe(true)
     expect(LIVE_RESEARCH_NOTICE).toMatch(/did not search the internet/i)
     const forecast = generateForecast(profile, 'daily')
     for (const card of evidenceCards(forecast)) {

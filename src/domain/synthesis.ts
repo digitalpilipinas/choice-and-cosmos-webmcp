@@ -9,10 +9,14 @@ import type {
   ReportSectionId,
 } from './types.ts'
 
-export const LIVE_RESEARCH_MOUNTED = false
+/** True when Contrast may POST /api/research. Not a claim that a key exists. */
+export const LIVE_RESEARCH_MOUNTED = true
 
 export const LIVE_RESEARCH_NOTICE =
-  'Live research is not mounted in this preview. Source cards are local fixture or manual examples. This app did not search the internet.'
+  'This reading uses local fixture or manual examples. It did not search the internet.'
+
+export const CONTRAST_RESEARCH_IDLE_NOTICE =
+  'Optional Gemini Search runs only after you confirm the exact focus and horizon. Until then, or if the route or key is missing, this page did not search the internet.'
 
 export type FrameworkKind = 'interpretive' | 'reflective'
 

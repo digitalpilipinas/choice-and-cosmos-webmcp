@@ -2,7 +2,6 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { TOOL_NAMES } from '../../src/webmcp/catalog.ts'
-import { GEMINI_INTERACTIONS_URL } from '../../server/research/gemini.ts'
 
 const srcModules = import.meta.glob('../../src/**/*.{ts,tsx,css}', {
   query: '?raw',
@@ -48,15 +47,15 @@ describe('secret boundary', () => {
 
   it('keeps the Interactions URL on the server side only', () => {
     const serverText = Object.values(serverModules).join('\n')
-    expect(serverText).toContain(GEMINI_INTERACTIONS_URL)
+    expect(serverText).toContain('https://generativelanguage.googleapis.com/v1beta/interactions')
     expect(serverText).toMatch(/x-goog-api-key/)
   })
 
   it('does not put the Interactions URL or API header into the client bundle when dist exists', () => {
-    const distRoot = join(process.cwd(), 'dist')
+    const distRoot = join(process.cwd(), 'dist', 'client')
     expect(
       existsSync(distRoot),
-      'dist is missing. Run npm run build before this secret scan.',
+      'dist/client is missing. Run npm run build before this secret scan.',
     ).toBe(true)
     const files = walkBundleFiles(distRoot)
     expect(

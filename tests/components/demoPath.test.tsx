@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
 import { FREE_WILL_NOTE } from '../../src/domain/loop.ts'
+import { LIVE_RESEARCH_NOTICE } from '../../src/domain/synthesis.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
 
 const FOCUS = 'finish the draft'
@@ -31,7 +32,7 @@ describe('documented demo path', () => {
 
     await screen.findByRole('heading', { name: 'Cosmos' })
     expect(screen.getByText(FREE_WILL_NOTE)).toBeInTheDocument()
-    expect(screen.getByText(/Live research is not mounted/i)).toBeInTheDocument()
+    expect(screen.getByText(LIVE_RESEARCH_NOTICE)).toBeInTheDocument()
     expect(screen.getByRole('img', { name: /Compass window map/ })).toBeInTheDocument()
     expect(screen.getByRole('table')).toBeInTheDocument()
     expect(screen.getAllByText('Grounded source notes').length).toBeGreaterThan(0)

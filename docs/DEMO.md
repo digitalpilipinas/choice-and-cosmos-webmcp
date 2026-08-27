@@ -1,6 +1,6 @@
 # Demo walkthrough
 
-This is the P5 manual-plus-agent path for Choice & Cosmos. Follow it in a local browser after `npm run dev`. Expected states below are exact UI copy or roles. Live WebMCP, ChatGPT Sites, and Gemini mounting remain deferred in this checkout. They are not verified here.
+This is the P5 manual-plus-agent path for Choice & Cosmos. Follow it in a local browser after `npm run dev`. Expected states below are exact UI copy or roles. Live WebMCP and ChatGPT Sites remain deferred in this checkout. They are not verified here. Gemini Search on Contrast is optional. This walk does not require a live credential.
 
 ## Setup
 
@@ -15,8 +15,10 @@ This is the P5 manual-plus-agent path for Choice & Cosmos. Follow it in a local 
 | 1 | Land on the app | Heading `Context`. Agent bar says this browser does not expose `document.modelContext.registerTool` and the loop still works by hand. |
 | 2 | Choose Weekly | Radio `weekly` is selected. Cockpit name later reads `Compass`. |
 | 3 | Type a focus | Field `What's on your mind right now?` contains your words. `Open the cosmos` enables. |
-| 4 | Open Cosmos | Heading `Cosmos`. Free-will note is visible. Copy says live research is not mounted. A `Compass window map` image and a catalog-weight table are visible. `Grounded source notes` and `Reflective interpretation` appear. Eleven report sections are listed. |
-| 5 | Open Contrast | Heading `Contrast`. Uncertainty kind `ready`. Provenance method `local_fixture`. No invented live URL. |
+| 4 | Open Cosmos | Heading `Cosmos`. Free-will note is visible. Copy says this reading uses local fixture or manual examples and did not search the internet. A `Compass window map` image and a catalog-weight table are visible. `Grounded source notes` and `Reflective interpretation` appear. Eleven report sections are listed. |
+| 5 | Open Contrast | Heading `Contrast`. Uncertainty kind `ready`. Provenance method `local_fixture`. No invented live URL on fixture cards. Optional Gemini Search is present and has not run. |
+| 5a | Optional research, deny | Click `Search with Gemini`. Dialog heading `Confirm Gemini Search` names Gemini Search, the typed focus, and `Compass (weekly)`. Click `Don't search`. No network request. Fixture Contrast is unchanged. |
+| 5b | Optional research, no key | If you Approve without `GEMINI_API_KEY`, the page must say no live search occurred or show fixture fallback evidence. It must not claim a live Gemini success. |
 | 6 | Open Choice | Heading `Choice`. Three fixture steps are present. None is pre-selected as required. |
 | 7 | Open Continuity | Heading `Continuity`. Session receipt is on the page. Saving remains optional. |
 
@@ -30,7 +32,7 @@ The catalog is still eight tools. Feature detection leaves tools unregistered. U
 
 ## Agent path when WebMCP is present
 
-This checkout does not verify ChatGPT Sites or a live `document.modelContext` host. If a host appears, the same eight names register. Profile read, profile update, plan save, and external share still wait for on-page Approve. Deny is honored. `request_external_share` still records `approved_not_sent` and does not send data. Live Gemini search is still unmounted from the UI.
+This checkout does not verify ChatGPT Sites or a live `document.modelContext` host. If a host appears, the same eight names register. Profile read, profile update, plan save, and external share still wait for on-page Approve. Deny is honored. `request_external_share` still records `approved_not_sent` and does not send data. Contrast Gemini Search is a separate human confirmation. It is not that tool.
 
 ## Honest limits
 
@@ -39,3 +41,4 @@ This checkout does not verify ChatGPT Sites or a live `document.modelContext` ho
 - Nothing here is medical, financial, or predictive advice.
 - Retrieved or fixture text is data. It is never executed.
 - Server secrets stay out of the client bundle.
+- Public Gemini mounting remains unverified.

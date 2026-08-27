@@ -16,6 +16,7 @@ import { EvidenceCard } from '../EvidenceCard.tsx'
 import { ForecastCockpit } from '../ForecastCockpit.tsx'
 import { FreeWillBanner } from '../FreeWillBanner.tsx'
 import { HorizonChart } from '../HorizonChart.tsx'
+import { ContrastResearch } from '../research/ContrastResearch.tsx'
 import { UncertaintyPanel } from '../UncertaintyPanel.tsx'
 import type { PhaseProps } from './phaseProps.ts'
 
@@ -33,6 +34,12 @@ export function ContrastPhase({ state }: PhaseProps) {
         <p className="research-notice">{LIVE_RESEARCH_NOTICE}</p>
         <ForecastCockpit cockpit={cockpit} uncertainty={uncertainty} />
         <UncertaintyPanel state={uncertainty} />
+        <ContrastResearch
+          key={`${state.horizon}:${state.profile.focusIntention}`}
+          query={state.profile.focusIntention}
+          horizon={state.horizon}
+          blocked={state.confirmation.status === 'pending'}
+        />
       </section>
     )
   }
@@ -122,6 +129,12 @@ export function ContrastPhase({ state }: PhaseProps) {
           </p>
         </article>
       </div>
+      <ContrastResearch
+        key={`${state.horizon}:${state.profile.focusIntention}`}
+        query={state.profile.focusIntention}
+        horizon={state.horizon}
+        blocked={state.confirmation.status === 'pending'}
+      />
     </section>
   )
 }

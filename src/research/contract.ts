@@ -118,3 +118,6 @@ export const RESEARCH_OUTCOMES = [
   'timed_out',
   'error',
 ] as const satisfies readonly ResearchOutcomeKind[]
+
+/** Same-origin mount. Worker and client share this string. */
+export const RESEARCH_API_PATH = '/api/research'

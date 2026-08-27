@@ -1,6 +1,6 @@
 # Choice & Cosmos: P0 through P5 specification
 
-This file describes the data model and constraints for the P0 foundation and fixture preview, the P1 local persistence and choice editor, the P2 WebMCP tools, the P3 research adapter, the P4 synthesis and charts, and the P5 hardening. It is the reference for what the code in `src/domain/`, `src/fixtures/`, `src/persistence/`, `src/webmcp/`, `src/research/`, and `server/research/` must stay true to as later phases build on it.
+This file describes the data model and constraints for the P0 foundation and fixture preview, the P1 local persistence and choice editor, the P2 WebMCP tools, the P3 research adapter, the P4 synthesis and charts, and the P5 hardening. It is the reference for what the code in `src/domain/`, `src/fixtures/`, `src/persistence/`, `src/webmcp/`, `src/research/`, `server/research/`, and `worker/index.ts` must stay true to as later phases build on it.
 
 ## The product loop
 
@@ -174,7 +174,7 @@ type ExternalShareState =
 
 `evidenceForSection(forecast, section)` and `sectionsCitingEvidence(forecast, evidenceId)` map existing `ReportSection.evidenceIds` onto `EvidenceItem.id` in both directions. They do not add stored fields.
 
-`generateForecast(profile, horizon)` is a pure, deterministic function. The same focus text, tone, and horizon always produce the same fixture forecast, seeded by a plain string hash rather than by wall-clock time or `Math.random()`. This is a fixture generator, not a research pipeline. P1 still writes `coverage.mode` as `'fixture'`. P3 adds a separate server-side research contract behind `src/research/` and `server/research/`. P4 keeps that on-page forecast and cites every report section from the used fixture pool. Fixture and manual research fallback stay alive rather than deleted. Live research remains unmounted.
+`generateForecast(profile, horizon)` is a pure, deterministic function. The same focus text, tone, and horizon always produce the same fixture forecast, seeded by a plain string hash rather than by wall-clock time or `Math.random()`. This is a fixture generator, not a research pipeline. P1 still writes `coverage.mode` as `'fixture'`. P3 adds a separate server-side research contract behind `src/research/` and `server/research/`. P4 keeps that on-page forecast and cites every report section from the used fixture pool. Fixture and manual research fallback stay alive rather than deleted. The Worker mounts `/api/research`. Contrast POSTs a confirmed focus and horizon only after you approve. A missing `GEMINI_API_KEY` still uses fixture fallback and says no live search occurred.
 
 ## Non-negotiable constraints
 
@@ -297,9 +297,13 @@ When the key is missing, auto mode uses local fixture evidence with `url: null`.
 
 `handleResearchRequest` is a platform-neutral `Request`/`Response` function. POST JSON is the only accepted method. Invalid input returns `outcome: "error"` with `code: "invalid_input"`. There is no CORS header and no authentication scheme in this slice. AbortSignal cancellation returns `cancelled`. The horizon time budget returns `timed_out`.
 
+The Cloudflare Worker mounts that handler at pathname `/api/research` for every method. It passes `env.GEMINI_API_KEY` into `handleResearchRequest`. Every other path continues to the SPA asset handler.
+
+Contrast owns an optional research session. The session is a discriminated union (`idle`, `confirming`, `in_flight`, `complete`). It is not `ConfirmationState`, is not written to `StoredSessionV1`, and is not merged into `ForecastFixture`. The confirm dialog names Gemini Search and shows the exact focus text and selected horizon before any POST. Deny makes zero network requests. Approval POSTs `ResearchRequestInput` with `mode: "auto"` and empty `manualUrls`. Client source must not contain `GEMINI_API_KEY`, `x-goog-api-key`, the Interactions URL, or a `server/` import.
+
 Retrieved text, titles, and snippets are untrusted data. They are never executed, never used as tool policy, and never allowed to raise caps or skip consent.
 
-This slice does not change the P2 tool catalog. P4 adds on-page synthesis and charts without importing `server/` or mounting the research handler.
+This slice does not change the P2 tool catalog. `request_external_share` still records `approved_not_sent` and does not call the handler.
 
 ## P4 synthesis and charts
 
@@ -331,7 +335,7 @@ interface HorizonChartModel {
 }
 ```
 
-`LIVE_RESEARCH_MOUNTED` is `false`. Fixture cards have `url: null`. The UI never fabricates an `https` link. Numerology, Human Design, western astrology, Chinese elemental, tarot and oracle, and symbolic codes are interpretive guides, never predictions. Other sections are reflective frameworks. Cosmos and Contrast keep `FREE_WILL_NOTE` visible.
+`LIVE_RESEARCH_MOUNTED` is `true` when the Worker exposes `/api/research`. That flag does not mean a Gemini credential is present or that a live search succeeded. Fixture cards have `url: null`. The fixture reading still says it did not search the internet. Numerology, Human Design, western astrology, Chinese elemental, tarot and oracle, and symbolic codes are interpretive guides, never predictions. Other sections are reflective frameworks. Cosmos and Contrast keep `FREE_WILL_NOTE` visible.
 
 `horizonChart(forecast)` is deterministic. Daily uses four window parts, weekly uses seven days, yearly uses four seasons. Weights are integer catalog counts. The caption states they are not probabilities and not a prediction. Charts render as client-side SVG. There is no Python runtime, no Perplexity dependency, and no SSR requirement.
 
@@ -341,7 +345,7 @@ The browser bundle still must not contain `GEMINI_API_KEY`, an `x-goog-api-key` 
 
 ## P5 hardening
 
-P5 is release-candidate evidence over the P4 app. It does not add tools, mount live research, or collect birth data.
+P5 is release-candidate evidence over the P4 app. It does not add tools or collect birth data. The Worker mounts `handleResearchRequest` at POST `/api/research`. Contrast confirmation is not `ConfirmationState`. Research results are not stored in `StoredSessionV1` and are not merged into `ForecastFixture`. `LIVE_RESEARCH_MOUNTED` is true because that route exists. A public live Gemini demo is not claimed.
 
 The horizon chart keeps `HorizonChartModel` and adds a visible HTML table of the same slots. Catalog weights stay integers. They are not probabilities. Narrow viewports may hide cramped SVG labels. The table remains.
 
@@ -351,4 +355,4 @@ WebMCP compatibility is feature detection plus structured tool errors. Unknown n
 
 Untrusted input, including fixture notes and any later retrieved text, is stored and rendered as data. It cannot widen caps or override consent.
 
-Live WebMCP hosts, ChatGPT Sites, and Gemini UI mounting are deferred when not verified. The demo path is `docs/DEMO.md`. CI is `.github/workflows/ci.yml` and uses no credentials.
+Live WebMCP hosts, ChatGPT Sites, and a verified live Gemini credential remain deferred when not present. The demo path is `docs/DEMO.md`. CI is `.github/workflows/ci.yml` and uses no credentials.
