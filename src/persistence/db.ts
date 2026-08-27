@@ -15,12 +15,12 @@ export async function getItem<T>(key: string): Promise<T | undefined> {
 
 export async function setItem<T>(key: string, value: T): Promise<void> {
   const db = await openDatabase()
-  await requestToPromise(readStore(db, 'readwrite').put(value, key))
+  await completeWrite(db, (store) => store.put(value, key))
 }
 
 export async function deleteItem(key: string): Promise<void> {
   const db = await openDatabase()
-  await requestToPromise(readStore(db, 'readwrite').delete(key))
+  await completeWrite(db, (store) => store.delete(key))
 }
 
 function openDatabase(): Promise<IDBDatabase> {
@@ -57,6 +57,25 @@ function openDatabase(): Promise<IDBDatabase> {
 
 function readStore(db: IDBDatabase, mode: IDBTransactionMode): IDBObjectStore {
   return db.transaction(STORE_NAME, mode).objectStore(STORE_NAME)
+}
+
+function completeWrite(
+  db: IDBDatabase,
+  run: (store: IDBObjectStore) => IDBRequest,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, 'readwrite')
+    const request = run(transaction.objectStore(STORE_NAME))
+    const fail = () => {
+      reject(request.error ?? transaction.error ?? new Error('IndexedDB request failed'))
+    }
+    transaction.oncomplete = () => {
+      resolve()
+    }
+    transaction.onabort = fail
+    transaction.onerror = fail
+    request.onerror = fail
+  })
 }
 
 function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {

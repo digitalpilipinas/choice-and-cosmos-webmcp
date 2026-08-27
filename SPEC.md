@@ -335,7 +335,7 @@ interface HorizonChartModel {
 
 `horizonChart(forecast)` is deterministic. Daily uses four window parts, weekly uses seven days, yearly uses four seasons. Weights are integer catalog counts. The caption states they are not probabilities and not a prediction. Charts render as client-side SVG. There is no Python runtime, no Perplexity dependency, and no SSR requirement.
 
-`generateForecast` round-robins used evidence IDs across all eleven sections. Empty cites remain representable for fallback and tests. Uncertainty stays `unavailable` with no forecast, `partial` when `sourcesUsed` is 0, and `ready` otherwise.
+`generateForecast(profile, horizon)` round-robins used evidence IDs across all eleven sections. Normal output cites every report section with at least one evidence ID from that used fixture pool. Empty `evidenceIds` remains representable for explicit fallback data and focused tests. It is not the normal generated-forecast invariant. Uncertainty stays `unavailable` with no forecast, `partial` when `sourcesUsed` is 0, and `ready` otherwise.
 
 The browser bundle still must not contain `GEMINI_API_KEY`, an `x-goog-api-key` header, or a module from `server/`. Manual screens stay complete when WebMCP is missing.
 

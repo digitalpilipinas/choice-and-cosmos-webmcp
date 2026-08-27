@@ -55,7 +55,7 @@ const LIMITATIONS_BY_SOURCE: Record<ForecastSource, string> = {
   fixture:
     'This reading uses fixture example data, not live research. Coverage counts describe how much of the cataloged pool was used. They are not a confidence score, and they do not predict an outcome. You keep free will and may set the whole reading aside.',
   manual:
-    'This reading uses manual example data, not live research. Coverage counts describe how much of the cataloged pool was used. They are not a confidence score, and they do not predict an outcome. You keep free will and may set the whole reading aside.',
+    'This reading uses manual links you supplied, not live research. This preview did not fetch or search them. Coverage counts describe how much of the cataloged pool was used. They are not a confidence score, and they do not predict an outcome. You keep free will and may set the whole reading aside.',
 }
 
 export function forecastCockpit(

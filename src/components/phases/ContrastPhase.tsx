@@ -62,8 +62,9 @@ export function ContrastPhase({ state }: PhaseProps) {
       <article className="coverage-card" aria-labelledby="coverage-heading">
         <h3 id="coverage-heading">Coverage summary</h3>
         <p className="coverage-mode">
-          Mode: {coverage.mode} example data, not live research. This preview never
-          searched the internet.
+          {coverage.mode === 'manual'
+            ? 'Mode: manual. These are links you supplied. This preview did not fetch or search them.'
+            : 'Mode: fixture example data, not live research. This preview never searched the internet.'}
         </p>
         <p className={`coverage-level coverage-level-${level}`}>
           {COVERAGE_LEVEL_COPY[level]}

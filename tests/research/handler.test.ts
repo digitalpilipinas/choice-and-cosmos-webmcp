@@ -122,11 +122,11 @@ describe('research handler', () => {
   })
 
   it('does not send Authorization or leak the test key', async () => {
+    let capturedUrl = ''
+    let capturedHeaders: Headers | undefined
     const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      expect(String(url)).toBe(GEMINI_INTERACTIONS_URL)
-      const headers = new Headers(init?.headers)
-      expect(headers.has('authorization')).toBe(false)
-      expect(headers.get('x-goog-api-key')).toBe(TEST_KEY)
+      capturedUrl = String(url)
+      capturedHeaders = new Headers(init?.headers)
       return new Response(
         JSON.stringify({
           outputs: [{ type: 'text', text: 'ok', annotations: [] }],
@@ -138,9 +138,23 @@ describe('research handler', () => {
       post({ horizon: 'daily', query: 'stay with the draft' }),
       { env: { GEMINI_API_KEY: TEST_KEY }, fetchImpl: fetchImpl as typeof fetch },
     )
-    const body = await response.text()
-    expect(body).not.toContain(TEST_KEY)
-    expect(body).not.toContain('x-goog-api-key')
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(capturedUrl).toBe(GEMINI_INTERACTIONS_URL)
+    expect(capturedHeaders).toBeDefined()
+    expect(capturedHeaders?.has('authorization')).toBe(false)
+    expect(capturedHeaders?.get('x-goog-api-key')).toBe(TEST_KEY)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string }
+      modelText: string
+    }
+    expect(body.outcome).toBe('partial')
+    expect(body.coverage.mode).toBe('gemini')
+    expect(body.modelText).toBe('ok')
+    const serialized = JSON.stringify(body)
+    expect(serialized).not.toContain(TEST_KEY)
+    expect(serialized).not.toContain('x-goog-api-key')
   })
 
   it('returns cancelled when the request signal is aborted', async () => {
