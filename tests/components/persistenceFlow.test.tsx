@@ -3,9 +3,22 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
+import type { AppState } from '../../src/domain/types.ts'
 import { getItem } from '../../src/persistence/db.ts'
 
 type SessionStore = typeof import('../../src/persistence/sessionStore.ts')
+type DbModule = typeof import('../../src/persistence/db.ts')
+
+const dbMock = vi.hoisted(() => {
+  const state: {
+    actualSetItem: DbModule['setItem'] | null
+    setItem: ReturnType<typeof vi.fn<DbModule['setItem']>>
+  } = {
+    actualSetItem: null,
+    setItem: vi.fn(),
+  }
+  return state
+})
 
 const grantMock = vi.hoisted(() => {
   const state: {
@@ -16,6 +29,16 @@ const grantMock = vi.hoisted(() => {
     fn: vi.fn(),
   }
   return state
+})
+
+vi.mock('../../src/persistence/db.ts', async (importOriginal) => {
+  const actual = await importOriginal<DbModule>()
+  dbMock.actualSetItem = actual.setItem
+  dbMock.setItem.mockImplementation(actual.setItem)
+  return {
+    ...actual,
+    setItem: dbMock.setItem,
+  }
 })
 
 vi.mock('../../src/persistence/sessionStore.ts', async (importOriginal) => {
@@ -31,10 +54,53 @@ vi.mock('../../src/persistence/sessionStore.ts', async (importOriginal) => {
 import {
   bootstrapPersistence,
   clearSavedData,
+  declineConsent,
   grantConsentAndSave,
+  saveSession,
 } from '../../src/persistence/sessionStore.ts'
 
 const FOCUS = 'keep the draft honest overnight'
+
+type SessionFields = Pick<
+  AppState,
+  'phase' | 'horizon' | 'profile' | 'forecastsByHorizon' | 'plansByHorizon'
+>
+
+const sampleFields: SessionFields = {
+  phase: 'contrast',
+  horizon: 'yearly',
+  profile: {
+    displayName: 'You',
+    focusIntention: FOCUS,
+    tone: 'bold',
+  },
+  forecastsByHorizon: { daily: null, weekly: null, yearly: null },
+  plansByHorizon: { daily: null, weekly: null, yearly: null },
+}
+
+async function startHeldSessionSave(state: SessionFields) {
+  if (dbMock.actualSetItem === null) {
+    throw new Error('expected setItem implementation')
+  }
+  const actualSetItem = dbMock.actualSetItem
+  let release = () => {}
+  const hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let entered = false
+  dbMock.setItem.mockImplementation(async (key, value) => {
+    if (key === 'session') {
+      entered = true
+      await hold
+    }
+    return actualSetItem(key, value)
+  })
+  const saving = saveSession(state)
+  await waitFor(() => {
+    expect(entered).toBe(true)
+  })
+  return { saving, release }
+}
 
 describe('persistence flow', () => {
   beforeEach(async () => {
@@ -43,6 +109,11 @@ describe('persistence flow', () => {
       throw new Error('expected grantConsentAndSave implementation')
     }
     grantMock.fn.mockImplementation(grantMock.actual)
+    if (dbMock.actualSetItem === null) {
+      throw new Error('expected setItem implementation')
+    }
+    dbMock.setItem.mockReset()
+    dbMock.setItem.mockImplementation(dbMock.actualSetItem)
     await clearSavedData()
   })
 
@@ -225,5 +296,34 @@ describe('persistence flow', () => {
       kind: 'hydrated',
       session: stored,
     })
+  })
+
+  it('does not let a held session write restore data after clear', async () => {
+    await grantConsentAndSave(sampleFields)
+    const { saving, release } = await startHeldSessionSave({
+      ...sampleFields,
+      phase: 'choice',
+    })
+    const clearing = clearSavedData()
+    release()
+    await Promise.all([saving, clearing])
+
+    await expect(getItem('session')).resolves.toBeUndefined()
+    await expect(getItem('consent')).resolves.toBeUndefined()
+    await expect(bootstrapPersistence()).resolves.toEqual({ kind: 'undecided' })
+  })
+
+  it('does not hydrate a held session write after decline', async () => {
+    await grantConsentAndSave(sampleFields)
+    const { saving, release } = await startHeldSessionSave({
+      ...sampleFields,
+      phase: 'choice',
+    })
+    const declining = declineConsent()
+    release()
+    await Promise.all([saving, declining])
+
+    await expect(getItem('consent')).resolves.toBe('declined')
+    await expect(bootstrapPersistence()).resolves.toEqual({ kind: 'declined' })
   })
 })
