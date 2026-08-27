@@ -22,7 +22,7 @@ npm run lint      # oxlint
 npm test -- --run
 ```
 
-The reproducible demo path, including expected states, is `docs/DEMO.md`. Live WebMCP and ChatGPT Sites remain deferred until a host is verified. Contrast Gemini Search is mounted. A public live Gemini demo is not claimed.
+The reproducible demo path, including expected states, is `docs/DEMO.md`. Native Chrome WebMCP is verified locally when Chrome exposes `document.modelContext.registerTool`. Live ChatGPT Sites WebMCP discovery remains unverified. Public deployment remains deferred. Contrast Gemini Search is mounted. A public live Gemini demo is not claimed.
 
 ## What still stays out of the browser
 
@@ -53,7 +53,7 @@ See `SPEC.md` for the full data shapes and the non-negotiable product constraint
 
 ## Roadmap
 
-P0 shipped the foundation and fixture preview. P1 added local persistence and a fuller manual slice. P2 adds WebMCP tools with confirmation gates and a manual fallback. P3 adds a server-only Gemini Search adapter with fixture and manual fallback, bounded caps, provenance, and cancellation states. P4 connects fixture evidence to all eleven sections, labels grounded notes apart from reflective interpretation, and draws deterministic client-side charts. P5 hardens accessibility, privacy and security docs, WebMCP fallback tests, a demo walkthrough, and credential-free CI. Contrast now mounts that adapter at same-origin `/api/research` behind an explicit confirmation. The Worker does not forward a live Gemini key. The public demo, ChatGPT Sites, and a verified live Gemini credential remain deferred. The full plan lives in the project's GoalBuddy board under `docs/goals/choice-and-cosmos-webmcp/`, which this slice does not modify.
+P0 shipped the foundation and fixture preview. P1 added local persistence and a fuller manual slice. P2 adds WebMCP tools with confirmation gates and a manual fallback. P3 adds a server-only Gemini Search adapter with fixture and manual fallback, bounded caps, provenance, and cancellation states. P4 connects fixture evidence to all eleven sections, labels grounded notes apart from reflective interpretation, and draws deterministic client-side charts. P5 hardens accessibility, privacy and security docs, WebMCP fallback tests, a demo walkthrough, and credential-free CI. Contrast now mounts that adapter at same-origin `/api/research` behind an explicit confirmation. The Worker does not forward a live Gemini key. Native Chrome WebMCP is verified locally. Live ChatGPT Sites WebMCP discovery remains unverified. Public deployment remains deferred. A verified live Gemini credential remains deferred. The full plan lives in the project's GoalBuddy board under `docs/goals/choice-and-cosmos-webmcp/`, which this slice does not modify.
 
 ## P3 research adapter
 
@@ -99,7 +99,7 @@ P5 does not change the loop, the eight-tool catalog, or the stored forecast shap
 
 **Server secrets.** `GEMINI_API_KEY`, `x-goog-api-key`, and `server/` stay out of the client bundle. Docs may name the environment variable. They must not include a key value.
 
-**Local fallback.** Missing WebMCP keeps the screens complete. The current Worker does not forward a Gemini key, so `/api/research` uses fixture or manual fallback and says no live search occurred. ChatGPT Sites and a public live Gemini demo remain deferred until verified.
+**Local fallback.** Missing WebMCP keeps the screens complete. Native Chrome WebMCP is verified locally when `document.modelContext.registerTool` is present. The current Worker does not forward a Gemini key, so `/api/research` uses fixture or manual fallback and says no live search occurred. Live ChatGPT Sites WebMCP discovery remains unverified. Public deployment remains deferred. A public live Gemini demo remains deferred.
 
 **Accessibility.** A skip link targets `#main-content`. Chart slots also appear in a visible HTML table so narrow widths stay readable. Report sections keep native disclosure. Evidence heading ids stay unique across sections.
 
