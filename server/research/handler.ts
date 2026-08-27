@@ -80,7 +80,8 @@ async function readBoundedBody(request: Request): Promise<BoundedBody> {
       received += value.byteLength
       if (received > MAX_RESEARCH_BODY_BYTES) {
         exceeded = true
-        continue
+        await reader.cancel()
+        break
       }
       chunks.push(value)
     }

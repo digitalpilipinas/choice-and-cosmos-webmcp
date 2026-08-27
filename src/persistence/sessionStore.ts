@@ -66,10 +66,20 @@ export type BootstrapResult =
 
 export type StorageMutationResult = { ok: true } | { error: string }
 
-type SessionFields = Pick<
+export type SessionFields = Pick<
   AppState,
   'phase' | 'horizon' | 'profile' | 'forecastsByHorizon' | 'plansByHorizon'
 >
+
+export function sessionFieldsOf(state: AppState): SessionFields {
+  return {
+    phase: state.phase,
+    horizon: state.horizon,
+    profile: state.profile,
+    forecastsByHorizon: state.forecastsByHorizon,
+    plansByHorizon: state.plansByHorizon,
+  }
+}
 
 let writeEpoch = 0
 let queue: Promise<unknown> = Promise.resolve()
@@ -111,9 +121,19 @@ async function writeSession(
   }
 }
 
+function parseStoredConsent(raw: unknown): 'granted' | 'declined' | null {
+  if (raw === 'granted') {
+    return 'granted'
+  }
+  if (raw === 'declined') {
+    return 'declined'
+  }
+  return null
+}
+
 async function requireGrantedConsent(): Promise<{ error: string } | null> {
   try {
-    const consent = await getItem<'granted' | 'declined'>(CONSENT_KEY)
+    const consent = parseStoredConsent(await getItem<unknown>(CONSENT_KEY))
     if (consent === 'granted') {
       return null
     }
@@ -129,8 +149,8 @@ export async function bootstrapPersistence(): Promise<BootstrapResult> {
   }
 
   try {
-    const consent = await getItem<'granted' | 'declined'>(CONSENT_KEY)
-    if (consent === undefined) {
+    const consent = parseStoredConsent(await getItem<unknown>(CONSENT_KEY))
+    if (consent === null) {
       return { kind: 'undecided' }
     }
     if (consent === 'declined') {

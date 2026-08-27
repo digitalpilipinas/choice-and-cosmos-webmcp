@@ -88,9 +88,44 @@ describe('worker research route', () => {
     expect(env.ASSETS.fetch).not.toHaveBeenCalled()
   })
 
+  it('does not invoke Gemini even when a fake Worker key is present', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
+      throw new Error('unexpected fetch')
+    })
+    const env = {
+      ...assetsEnv(),
+      GEMINI_API_KEY: 'sk-test-gemini-not-real-xyz',
+    }
+    const response = await worker.fetch(
+      new Request(`http://choice.local${RESEARCH_API_PATH}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(validBody),
+      }),
+      env,
+    )
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string }
+      stoppingReason?: string
+    }
+    expect(body.outcome).toBe('ready')
+    expect(body.coverage.mode).toBe('fixture')
+    expect(JSON.stringify(body)).not.toContain('sk-test-gemini-not-real-xyz')
+    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
   it('does not commit a GEMINI_API_KEY value in wrangler.jsonc', () => {
     const wrangler = readFileSync(join(process.cwd(), 'wrangler.jsonc'), 'utf8')
     expect(wrangler).not.toMatch(/"GEMINI_API_KEY"\s*:/)
-    expect(wrangler).toMatch(/wrangler secret put GEMINI_API_KEY/)
+    expect(wrangler).toMatch(/does not forward GEMINI_API_KEY/)
+    const workerSource = readFileSync(
+      join(process.cwd(), 'worker', 'index.ts'),
+      'utf8',
+    )
+    expect(workerSource).not.toMatch(/GEMINI_API_KEY/)
+    expect(workerSource).not.toMatch(/env\.GEMINI/)
   })
 })

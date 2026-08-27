@@ -5,14 +5,13 @@ type Env = {
   ASSETS: {
     fetch: (request: Request) => Response | Promise<Response>
   }
-  GEMINI_API_KEY?: string
 }
 
 export default {
   fetch(request: Request, env: Env) {
     if (new URL(request.url).pathname === RESEARCH_API_PATH) {
       return handleResearchRequest(request, {
-        env: { GEMINI_API_KEY: env.GEMINI_API_KEY },
+        env: {},
       })
     }
     return env.ASSETS.fetch(request)

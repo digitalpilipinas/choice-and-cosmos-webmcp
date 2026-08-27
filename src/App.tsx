@@ -35,6 +35,7 @@ import {
   declineConsent,
   grantConsentAndSave,
   saveSession,
+  sessionFieldsOf,
 } from './persistence/sessionStore.ts'
 import {
   AGENT_REGISTER_FAILED_REASON,
@@ -162,13 +163,7 @@ function App() {
     let cancelled = false
     const timeoutId = window.setTimeout(() => {
       dispatch({ type: 'PERSISTENCE_SAVE_START' })
-      void saveSession({
-        phase: state.phase,
-        horizon: state.horizon,
-        profile: state.profile,
-        forecastsByHorizon: state.forecastsByHorizon,
-        plansByHorizon: state.plansByHorizon,
-      }).then((result) => {
+      void saveSession(sessionFieldsOf(stateRef.current)).then((result) => {
         if (cancelled) {
           return
         }
@@ -212,9 +207,11 @@ function App() {
         persistence={state.persistence}
         onGrant={() => {
           dispatch({ type: 'GRANT_PERSISTENCE_CONSENT' })
-          void grantConsentAndSave(stateRef.current).then((result) => {
-            dispatchSaveResult(dispatch, result)
-          })
+          void grantConsentAndSave(sessionFieldsOf(stateRef.current)).then(
+            (result) => {
+              dispatchSaveResult(dispatch, result)
+            },
+          )
         }}
         onDecline={() => {
           void declineConsent().then((result) => {
@@ -230,7 +227,7 @@ function App() {
         }}
         onRetry={() => {
           dispatch({ type: 'PERSISTENCE_SAVE_START' })
-          void saveSession(stateRef.current).then((result) => {
+          void saveSession(sessionFieldsOf(stateRef.current)).then((result) => {
             dispatchSaveResult(dispatch, result)
           })
         }}
@@ -263,9 +260,11 @@ function App() {
             live.confirmation.id === id &&
             persistSessionOffered(live.confirmation, live.persistence)
           ) {
-            void grantConsentAndSave(stateRef.current).then((result) => {
-              dispatchSaveResult(dispatch, result)
-            })
+            void grantConsentAndSave(sessionFieldsOf(stateRef.current)).then(
+              (result) => {
+                dispatchSaveResult(dispatch, result)
+              },
+            )
           }
         }}
         onDeny={(id) => dispatch({ type: 'DENY_CONFIRMATION', id })}

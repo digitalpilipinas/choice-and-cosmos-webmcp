@@ -3,7 +3,8 @@
   "name": "choice-and-cosmos",
   "main": "./worker/index.ts",
   "compatibility_date": "2026-08-27",
-  // GEMINI_API_KEY is set with `wrangler secret put GEMINI_API_KEY`. Do not commit a key value.
+  // This Worker does not forward GEMINI_API_KEY. Live Gemini needs a later
+  // server-side identity, rate-limit, and spend-control boundary.
   "assets": {
     "not_found_handling": "single-page-application"
   }

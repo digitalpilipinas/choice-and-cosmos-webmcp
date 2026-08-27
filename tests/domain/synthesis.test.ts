@@ -73,6 +73,10 @@ describe('synthesis', () => {
     expect(horizonChart(daily).caption).toMatch(/not probabilities/i)
     expect(horizonChart(daily).caption).toMatch(/not a prediction/i)
 
+    expect(daily.generatedAt).toMatch(/^2026-08-27T/)
+    expect(weekly.generatedAt).toMatch(/^2026-08-27T/)
+    expect(yearly.generatedAt).toMatch(/^2026-08-27T/)
+
     const dailyWeights = horizonChart(daily).slots.map((slot) => slot.catalogWeight)
     expect(dailyWeights.every((weight) => Number.isInteger(weight))).toBe(true)
     expect(dailyWeights.reduce((sum, weight) => sum + weight, 0)).toBe(

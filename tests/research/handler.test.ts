@@ -80,6 +80,37 @@ describe('research handler', () => {
     expect(JSON.stringify(body)).not.toContain('xxxx')
   })
 
+  it('cancels the body reader once the size limit is exceeded', async () => {
+    let cancelled = false
+    const oversizeChunk = new Uint8Array(MAX_RESEARCH_BODY_BYTES + 1)
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(oversizeChunk)
+        controller.enqueue(oversizeChunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      duplex: 'half',
+    }
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', init),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Body exceeds the maximum allowed size.',
+    })
+    expect(cancelled).toBe(true)
+  })
+
   it('returns fixture evidence without credentials', async () => {
     const fetchImpl = vi.fn()
     const response = await handleResearchRequest(

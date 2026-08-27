@@ -174,7 +174,7 @@ type ExternalShareState =
 
 `evidenceForSection(forecast, section)` and `sectionsCitingEvidence(forecast, evidenceId)` map existing `ReportSection.evidenceIds` onto `EvidenceItem.id` in both directions. They do not add stored fields.
 
-`generateForecast(profile, horizon)` is a pure, deterministic function. The same focus text, tone, and horizon always produce the same fixture forecast, seeded by a plain string hash rather than by wall-clock time or `Math.random()`. This is a fixture generator, not a research pipeline. P1 still writes `coverage.mode` as `'fixture'`. P3 adds a separate server-side research contract behind `src/research/` and `server/research/`. P4 keeps that on-page forecast and cites every report section from the used fixture pool. Fixture and manual research fallback stay alive rather than deleted. The Worker mounts `/api/research`. Contrast POSTs a confirmed focus and horizon only after you approve. A missing `GEMINI_API_KEY` still uses fixture fallback and says no live search occurred.
+`generateForecast(profile, horizon)` is a pure, deterministic function. The same focus text, tone, and horizon always produce the same fixture forecast, seeded by a plain string hash rather than by wall-clock time or `Math.random()`. `generatedAt` is a deterministic clock on 2026-08-27. Relative labels such as Today and Tomorrow stay truthful for this challenge preview. This is a fixture generator, not a research pipeline. P1 still writes `coverage.mode` as `'fixture'`. P3 adds a separate server-side research contract behind `src/research/` and `server/research/`. P4 keeps that on-page forecast and cites every report section from the used fixture pool. Fixture and manual research fallback stay alive rather than deleted. The Worker mounts `/api/research`. It does not forward `GEMINI_API_KEY`. Contrast POSTs a confirmed focus and horizon only after you approve. The Worker uses fixture fallback and says no live search occurred.
 
 ## Non-negotiable constraints
 
@@ -297,7 +297,7 @@ When the key is missing, auto mode uses local fixture evidence with `url: null`.
 
 `handleResearchRequest` is a platform-neutral `Request`/`Response` function. POST JSON is the only accepted method. Invalid input returns `outcome: "error"` with `code: "invalid_input"`. There is no CORS header and no authentication scheme in this slice. AbortSignal cancellation returns `cancelled`. The horizon time budget returns `timed_out`.
 
-The Cloudflare Worker mounts that handler at pathname `/api/research` for every method. It passes `env.GEMINI_API_KEY` into `handleResearchRequest`. Every other path continues to the SPA asset handler.
+The Cloudflare Worker mounts that handler at pathname `/api/research` for every method. It passes an empty handler env and does not forward `GEMINI_API_KEY`, even if a Worker environment later contains one. Live Gemini on this route needs a separately verified server-side identity, rate limit, and spend-control boundary. UI confirmation is not that boundary. Every other path continues to the SPA asset handler.
 
 Contrast owns an optional research session. The session is a discriminated union (`idle`, `confirming`, `in_flight`, `complete`). It is not `ConfirmationState`, is not written to `StoredSessionV1`, and is not merged into `ForecastFixture`. The confirm dialog names Gemini Search and shows the exact focus text and selected horizon before any POST. Deny makes zero network requests. Approval POSTs `ResearchRequestInput` with `mode: "auto"` and empty `manualUrls`. Client source must not contain `GEMINI_API_KEY`, `x-goog-api-key`, the Interactions URL, or a `server/` import.
 
@@ -345,7 +345,7 @@ The browser bundle still must not contain `GEMINI_API_KEY`, an `x-goog-api-key` 
 
 ## P5 hardening
 
-P5 is release-candidate evidence over the P4 app. It does not add tools or collect birth data. The Worker mounts `handleResearchRequest` at POST `/api/research`. Contrast confirmation is not `ConfirmationState`. Research results are not stored in `StoredSessionV1` and are not merged into `ForecastFixture`. `LIVE_RESEARCH_MOUNTED` is true because that route exists. A public live Gemini demo is not claimed.
+P5 is release-candidate evidence over the P4 app. It does not add tools or collect birth data. The Worker mounts `handleResearchRequest` at POST `/api/research` without forwarding a Gemini key. Contrast confirmation is not `ConfirmationState` and is not server authentication. Research results are not stored in `StoredSessionV1` and are not merged into `ForecastFixture`. `LIVE_RESEARCH_MOUNTED` is true because that route exists. A public live Gemini demo is not claimed.
 
 The horizon chart keeps `HorizonChartModel` and adds a visible HTML table of the same slots. Catalog weights stay integers. They are not probabilities. Narrow viewports may hide cramped SVG labels. The table remains.
 

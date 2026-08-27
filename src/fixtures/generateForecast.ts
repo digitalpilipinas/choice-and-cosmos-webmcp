@@ -171,7 +171,7 @@ function stampFromSeed(seed: number): string {
   const hour = seed % 24
   const minute = (seed >>> 8) % 60
   const second = (seed >>> 16) % 60
-  return `2026-08-26T${pad(hour)}:${pad(minute)}:${pad(second)}.000Z`
+  return `2026-08-27T${pad(hour)}:${pad(minute)}:${pad(second)}.000Z`
 }
 
 function pad(value: number): string {

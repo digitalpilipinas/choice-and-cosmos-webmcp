@@ -6,7 +6,7 @@ This is the P5 manual-plus-agent path for Choice & Cosmos. Follow it in a local 
 
 1. From the repo root, run `npm install` once, then `npm run dev`.
 2. Open the printed local URL.
-3. Do not set `GEMINI_API_KEY` for this walk. The screens use fixture evidence.
+3. The Worker does not forward `GEMINI_API_KEY`. The screens use fixture evidence.
 
 ## Manual loop
 
@@ -18,7 +18,7 @@ This is the P5 manual-plus-agent path for Choice & Cosmos. Follow it in a local 
 | 4 | Open Cosmos | Heading `Cosmos`. Free-will note is visible. Copy says this reading uses local fixture or manual examples and did not search the internet. A `Compass window map` image and a catalog-weight table are visible. `Grounded source notes` and `Reflective interpretation` appear. Eleven report sections are listed. |
 | 5 | Open Contrast | Heading `Contrast`. Uncertainty kind `ready`. Provenance method `local_fixture`. No invented live URL on fixture cards. Optional Gemini Search is present and has not run. |
 | 5a | Optional research, deny | Click `Search with Gemini`. Dialog heading `Confirm Gemini Search` names Gemini Search, the typed focus, and `Compass (weekly)`. Click `Don't search`. No network request. Fixture Contrast is unchanged. |
-| 5b | Optional research, no key | If you Approve without `GEMINI_API_KEY`, the page must say no live search occurred or show fixture fallback evidence. It must not claim a live Gemini success. |
+| 5b | Optional research, Worker fallback | Click `Search with Gemini`, then `Search with Gemini` in the dialog. The Worker does not forward a Gemini key. The page must say no live search occurred or show fixture fallback evidence. It must not claim a live Gemini success. |
 | 6 | Open Choice | Heading `Choice`. Three fixture steps are present. None is pre-selected as required. |
 | 7 | Open Continuity | Heading `Continuity`. Session receipt is on the page. Saving remains optional. |
 
@@ -41,4 +41,5 @@ This checkout does not verify ChatGPT Sites or a live `document.modelContext` ho
 - Nothing here is medical, financial, or predictive advice.
 - Retrieved or fixture text is data. It is never executed.
 - Server secrets stay out of the client bundle.
+- The Worker does not forward a Gemini key. Fixture or manual fallback is the mounted path.
 - Public Gemini mounting remains unverified.

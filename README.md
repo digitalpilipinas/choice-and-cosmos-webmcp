@@ -31,7 +31,7 @@ P0 shipped the foundation and fixture preview. P1 added local, consent-gated, re
 - WebMCP tools are registered only after feature detection. The catalog is static: session status, consented profile access, profile-update proposals, forecast generation, evidence inspection, choice-plan drafting, plan-save confirmation, and external-share confirmation.
 - Personal profile reads, profile diffs, external sharing, and plan saving cannot complete without an on-page Approve. Deny is honored.
 - No client bundle contains a Gemini key, an `x-goog-api-key` header, or the server adapter. External-share approval is stored as `approved_not_sent` and still does not send data.
-- Research without `GEMINI_API_KEY` uses local fixture evidence. Manual mode accepts user-supplied http(s) links, caps them, and does not fetch or forward their content.
+- Research without `GEMINI_API_KEY` uses local fixture evidence. The Worker does not forward that variable, so the mounted route stays on fixture or manual fallback. Manual mode accepts user-supplied http(s) links, caps them, and does not fetch or forward their content.
 - No account system or cloud sync. Contrast POSTs a confirmed focus to same-origin `/api/research` only after you approve. The browser still must not hold `GEMINI_API_KEY`.
 - No raw birth date, birth time, or birth location is collected anywhere in the current P0 through P5 scope. Any later approved phase that added optional personal-data access would require explicit, confirmed consent.
 - No lottery-style probabilities, fake precision, deterministic predictions, or medical or financial advice.
@@ -46,20 +46,20 @@ P1 stores a session only after you opt in, only in this browser profile, and onl
 - `src/webmcp/` holds feature detection, the static tool catalog, and confirmation-gated tool handlers.
 - `src/research/` holds the typed research contract, horizon caps, the Contrast session union, and a same-origin POST client. It has no API key.
 - `server/research/` holds the Gemini Interactions adapter, fixture/manual fallback, response normalization, and a platform-neutral `Request`/`Response` handler. It is not imported by the browser bundle.
-- `worker/index.ts` mounts that handler at `/api/research` and injects `env.GEMINI_API_KEY`.
+- `worker/index.ts` mounts that handler at `/api/research`. It does not forward a Gemini key.
 - `src/components/` holds the five phase screens and shared UI (the phase stepper, the free-will banner, the local-saving control, the agent confirmation bar, source cards, the horizon chart, and Contrast Gemini Search).
 
 See `SPEC.md` for the full data shapes and the non-negotiable product constraints this build follows.
 
 ## Roadmap
 
-P0 shipped the foundation and fixture preview. P1 added local persistence and a fuller manual slice. P2 adds WebMCP tools with confirmation gates and a manual fallback. P3 adds a server-only Gemini Search adapter with fixture and manual fallback, bounded caps, provenance, and cancellation states. P4 connects fixture evidence to all eleven sections, labels grounded notes apart from reflective interpretation, and draws deterministic client-side charts. P5 hardens accessibility, privacy and security docs, WebMCP fallback tests, a demo walkthrough, and credential-free CI. Contrast now mounts that adapter at same-origin `/api/research` behind an explicit confirmation. The public demo, ChatGPT Sites, and a verified live Gemini credential remain deferred. The full plan lives in the project's GoalBuddy board under `docs/goals/choice-and-cosmos-webmcp/`, which this slice does not modify.
+P0 shipped the foundation and fixture preview. P1 added local persistence and a fuller manual slice. P2 adds WebMCP tools with confirmation gates and a manual fallback. P3 adds a server-only Gemini Search adapter with fixture and manual fallback, bounded caps, provenance, and cancellation states. P4 connects fixture evidence to all eleven sections, labels grounded notes apart from reflective interpretation, and draws deterministic client-side charts. P5 hardens accessibility, privacy and security docs, WebMCP fallback tests, a demo walkthrough, and credential-free CI. Contrast now mounts that adapter at same-origin `/api/research` behind an explicit confirmation. The Worker does not forward a live Gemini key. The public demo, ChatGPT Sites, and a verified live Gemini credential remain deferred. The full plan lives in the project's GoalBuddy board under `docs/goals/choice-and-cosmos-webmcp/`, which this slice does not modify.
 
 ## P3 research adapter
 
-The browser never holds a provider key. Set `GEMINI_API_KEY` only in the server environment. Do not put a key value in the client, a fixture, a log, or a commit. The optional name `GEMINI_API_KEY` is the only documented environment-variable name.
+The browser never holds a provider key. Isolated handler tests may inject a fake `GEMINI_API_KEY` into `handleResearchRequest`. Do not put a key value in the client, a fixture, a log, or a commit. The optional name `GEMINI_API_KEY` is the only documented environment-variable name.
 
-When that variable is set, `handleResearchRequest` in `server/research/handler.ts` may call the official Gemini Interactions API with `tools: [{ type: "google_search" }]`. This checkout does not configure a live credential. Tests inject `fetch` and a fake key. A Worker secret is set with `wrangler secret put GEMINI_API_KEY` and is never committed.
+When that variable is set on the reusable server adapter, `handleResearchRequest` in `server/research/handler.ts` may call the official Gemini Interactions API with `tools: [{ type: "google_search" }]`. This checkout does not configure a live credential. Tests inject `fetch` and a fake key. The deployed Worker does not forward `GEMINI_API_KEY`, even if a later environment contains one. Live Gemini needs a separately verified server-side identity, rate limit, and spend-control boundary.
 
 When the variable is missing, research uses local fixture evidence. Fixture sources have no live http(s) links. Manual mode validates user-supplied http(s) URLs, deduplicates them, applies the same caps, and does not fetch or send page content.
 
@@ -73,9 +73,9 @@ Horizon caps, always reported as non-exhaustive:
 
 Outcomes are `ready`, `partial`, `unavailable`, `cancelled`, `timed_out`, and `error`. Retrieved text is stored as data. It is never executed and cannot widen caps, override consent, or expose the key.
 
-The Worker in `worker/index.ts` mounts `handleResearchRequest` at `POST /api/research` and passes the Worker `GEMINI_API_KEY` binding into the handler. Other paths still go to the SPA asset handler. There is no CORS header and no authentication scheme. Contrast shows an optional Gemini Search control. Before any request, a dialog names Gemini Search and shows the exact focus text and selected horizon. Deny sends nothing. Approval POSTs `{ horizon, query, mode: "auto", manualUrls: [] }` to that same-origin route. Results render as labeled evidence, provenance, and coverage, separate from the fixture forecast. They are not stored in IndexedDB.
+The Worker in `worker/index.ts` mounts `handleResearchRequest` at `POST /api/research`. It passes an empty handler env and does not read or forward `GEMINI_API_KEY`. Other paths still go to the SPA asset handler. There is no CORS header and no authentication scheme. Contrast confirmation is not server authentication. Contrast shows an optional Gemini Search control. Before any request, a dialog names Gemini Search and shows the exact focus text and selected horizon. Deny sends nothing. Approval POSTs `{ horizon, query, mode: "auto", manualUrls: [] }` to that same-origin route. Results render as labeled evidence, provenance, and coverage, separate from the fixture forecast. They are not stored in IndexedDB.
 
-Honest limits: no live Gemini credential is configured in this checkout, the screens still show fixture forecasts, missing credentials or a missing route still say no live search occurred, and `request_external_share` still records `approved_not_sent` without sending.
+Honest limits: the Worker stays on fixture or manual fallback, this checkout has no live Gemini credential, missing credentials or a missing route still say no live search occurred, and `request_external_share` still records `approved_not_sent` without sending.
 
 ## P4 synthesis and charts
 
@@ -99,7 +99,7 @@ P5 does not change the loop, the eight-tool catalog, or the stored forecast shap
 
 **Server secrets.** `GEMINI_API_KEY`, `x-goog-api-key`, and `server/` stay out of the client bundle. Docs may name the environment variable. They must not include a key value.
 
-**Local fallback.** Missing WebMCP keeps the screens complete. Missing `GEMINI_API_KEY` uses fixture evidence with `url: null` and says no live search occurred. ChatGPT Sites and a public live Gemini demo remain deferred until verified.
+**Local fallback.** Missing WebMCP keeps the screens complete. The current Worker does not forward a Gemini key, so `/api/research` uses fixture or manual fallback and says no live search occurred. ChatGPT Sites and a public live Gemini demo remain deferred until verified.
 
 **Accessibility.** A skip link targets `#main-content`. Chart slots also appear in a visible HTML table so narrow widths stay readable. Report sections keep native disclosure. Evidence heading ids stay unique across sections.
 

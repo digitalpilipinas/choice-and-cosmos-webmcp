@@ -68,7 +68,8 @@ describe('registered host execute', () => {
         origin: 'custom',
       }),
     ])
-    expect(custom?.[0]?.id).toEqual(custom?.[0]?.id)
+    expect(custom?.[0]?.id).toEqual(expect.any(String))
+    expect(custom?.[0]?.id.length).toBeGreaterThan(0)
   })
 
   it('sees a user profile edit in the next tool call without a React flush', async () => {

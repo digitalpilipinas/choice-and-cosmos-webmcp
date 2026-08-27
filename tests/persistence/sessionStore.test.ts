@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { FREE_WILL_NOTE } from '../../src/domain/loop.ts'
+import { FREE_WILL_NOTE, INITIAL_STATE } from '../../src/domain/loop.ts'
 import type { AppState } from '../../src/domain/types.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { setItem } from '../../src/persistence/db.ts'
@@ -11,6 +11,7 @@ import {
   grantConsentAndSave,
   parseStoredSessionV1,
   saveSession,
+  sessionFieldsOf,
 } from '../../src/persistence/sessionStore.ts'
 
 const savedIndexedDb = globalThis.indexedDB
@@ -71,6 +72,31 @@ describe('sessionStore', () => {
   it('bootstraps as declined after declineConsent', async () => {
     await declineConsent()
     await expect(bootstrapPersistence()).resolves.toEqual({ kind: 'declined' })
+  })
+
+  it('treats an unknown consent value as undecided', async () => {
+    await setItem('consent', 'yes')
+    await expect(bootstrapPersistence()).resolves.toEqual({ kind: 'undecided' })
+  })
+
+  it('does not save when stored consent is not exactly granted', async () => {
+    await setItem('consent', 'yes')
+    await expect(saveSession(sampleState)).resolves.toEqual({
+      error: 'Saving is off.',
+    })
+  })
+
+  it('projects only session fields for persistence writes', () => {
+    const fields = sessionFieldsOf(INITIAL_STATE)
+    expect(fields).toEqual({
+      phase: INITIAL_STATE.phase,
+      horizon: INITIAL_STATE.horizon,
+      profile: INITIAL_STATE.profile,
+      forecastsByHorizon: INITIAL_STATE.forecastsByHorizon,
+      plansByHorizon: INITIAL_STATE.plansByHorizon,
+    })
+    expect(fields).not.toHaveProperty('confirmation')
+    expect(fields).not.toHaveProperty('persistence')
   })
 
   it('clearSavedData returns bootstrap to undecided', async () => {
