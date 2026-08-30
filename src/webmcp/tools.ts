@@ -1,45 +1,60 @@
-import { confirmationIdFor, createCustomStepId, type AppAction } from '../domain/loop.ts'
-import { HORIZON_BY_ID } from '../fixtures/horizons.ts'
+import { mustInstant } from '../domain/brand.ts'
+import {
+  appReducer,
+  confirmationIdForPayload,
+  createCustomStepId,
+  type ToolAction,
+} from '../domain/loop.ts'
+import {
+  hasBeliefModule,
+  parseModularProfile,
+} from '../domain/profile.ts'
 import {
   currentForecast,
   currentPlan,
-  evidenceForSection,
-  sectionsCitingEvidence,
-  uncertaintyFor,
+  currentReading,
 } from '../domain/selectors.ts'
+import { isStagedExpired, isTicketExpired } from '../domain/trust.ts'
 import type {
   AppState,
-  ChoiceStepStatus,
   ConfirmationPayload,
-  DerivedProfile,
   HorizonId,
-  ReportSectionId,
-  ShareInclude,
+  PersonProfile,
+  ProfileAccessField,
+  ProfileUpdatePatch,
 } from '../domain/types.ts'
+import {
+  DEFAULT_PROFILE_ACCESS_FIELDS,
+  PROFILE_ACCESS_FIELDS,
+} from '../domain/types.ts'
+import { PACKET_BOUNDS, PLAN_BOUNDS } from '../domain/bounds.ts'
+import { buildExactBrief, briefConsentSnapshot, briefDigest } from '../research/brief.ts'
+import { intakeProgress } from '../research/coordinator.ts'
 import { TOOL_NAMES, type ToolName } from './catalog.ts'
 import type { ToolResult } from './results.ts'
 
 const TONES = ['grounded', 'curious', 'bold'] as const
 const HORIZONS = ['daily', 'weekly', 'yearly'] as const
-const STEP_STATUSES = ['proposed', 'accepted', 'dismissed'] as const
-const SHARE_INCLUDES = ['profile', 'forecast', 'plan'] as const
-const SECTION_IDS = [
-  'energyOverview',
-  'numerology',
-  'humanDesign',
-  'westernAstrology',
-  'chineseElemental',
-  'lifeAreas',
-  'decisionSupport',
-  'tarotOracle',
-  'focusActionPlan',
-  'symbolicCodes',
-  'higherSelfLetter',
+const PACKET_OPS = [
+  'begin',
+  'append_sources',
+  'append_content',
+  'finalize',
+  'cancel',
 ] as const
 
 export interface ToolRun {
   result: ToolResult
-  actions: AppAction[]
+  actions: ToolAction[]
+}
+
+export function profileAccessPayload(
+  fields: readonly ProfileAccessField[] = DEFAULT_PROFILE_ACCESS_FIELDS,
+): Extract<ConfirmationPayload, { kind: 'personal_data_access' }> {
+  return {
+    kind: 'personal_data_access',
+    fields: PROFILE_ACCESS_FIELDS.filter((field) => fields.includes(field)),
+  }
 }
 
 export function runTool(
@@ -62,29 +77,19 @@ export function runTool(
     case 'get_session_status':
       return { result: { ok: true, data: sessionStatus(state) }, actions: [] }
     case 'request_profile_access':
-      return gatedRead(state, input, {
-        kind: 'personal_data_access',
-        summary:
-          'An agent wants to read your display name, focus intention, and tone. Nothing else is included. You can deny this.',
-        payload: { kind: 'personal_data_access' },
-        onApproved: (current) => ({
-          displayName: current.profile.displayName,
-          focusIntention: current.profile.focusIntention,
-          tone: current.profile.tone,
-        }),
-      })
+      return requestProfileAccess(state, input)
     case 'propose_profile_update':
       return proposeProfileUpdate(state, input)
-    case 'generate_forecast':
-      return generateForecastTool(state, input)
-    case 'inspect_evidence':
-      return inspectEvidence(state, input)
-    case 'draft_choice_plan':
-      return draftChoicePlan(state, input)
+    case 'get_research_brief':
+      return getResearchBrief(state, input)
+    case 'submit_reading_packet':
+      return submitReadingPacket(state, input)
+    case 'inspect_reading':
+      return { result: { ok: true, data: inspectReading(state) }, actions: [] }
+    case 'propose_choice_plan':
+      return proposeChoicePlan(state, input)
     case 'request_plan_save':
       return requestPlanSave(state, input)
-    case 'request_external_share':
-      return requestExternalShare(state, input)
     default: {
       const _exhaustive: never = name
       return _exhaustive
@@ -110,34 +115,51 @@ function sessionStatus(state: AppState) {
     phase: state.phase,
     horizon: state.horizon,
     hasFocus: state.profile.focusIntention.trim().length > 0,
-    hasForecast: currentForecast(state) !== null,
     hasPlan: currentPlan(state) !== null,
+    hasReading: currentReading(state) !== null,
+    hasStagedPacket: state.desk.staged !== null,
+    intake: state.intake.status,
     persistence: state.persistence.kind,
     agent: state.agentAvailability.kind,
+    fallback:
+      state.agentAvailability.kind === 'unavailable' ? 'manual_import' : null,
     confirmation,
-    externalShare: state.externalShare.kind,
   }
 }
 
-function gatedRead(
+function requestProfileAccess(
   state: AppState,
   input: Record<string, unknown>,
-  spec: {
-    kind: ConfirmationPayload['kind']
-    summary: string
-    payload: ConfirmationPayload
-    onApproved: (current: AppState) => unknown
-  },
 ): ToolRun {
-  const confirmationId = optionalString(input.confirmationId)
-  return resolveGate(state, confirmationId, spec)
+  const fields = parseAccessFields(input.fields)
+  if (fields === null) {
+    return invalid('fields must be an array of approved profile field names.')
+  }
+  const payload = profileAccessPayload(fields)
+  return resolveGate(state, optionalString(input.confirmationId), {
+    kind: 'personal_data_access',
+    summary:
+      'An agent wants to read the exact profile fields listed on this page. Nothing else is included. You can deny this.',
+    payload,
+    onApproved: (current) =>
+      projectProfile(
+        current.profile,
+        current.confirmation.status === 'approved' &&
+          current.confirmation.payload.kind === 'personal_data_access'
+          ? (current.confirmation.payload.fields ?? DEFAULT_PROFILE_ACCESS_FIELDS)
+          : payload.fields ?? DEFAULT_PROFILE_ACCESS_FIELDS,
+      ),
+  })
 }
 
 function proposeProfileUpdate(
   state: AppState,
   input: Record<string, unknown>,
 ): ToolRun {
-  const proposed: Partial<DerivedProfile> = {}
+  if (input.status !== undefined || input.resonance !== undefined) {
+    return invalid('A profile update cannot mark resonance or step status.')
+  }
+  const proposed: ProfileUpdatePatch = {}
   if (input.displayName !== undefined) {
     const displayName = requiredString(input.displayName)
     if (displayName === null) {
@@ -158,236 +180,265 @@ function proposeProfileUpdate(
     }
     proposed.tone = input.tone
   }
-
-  if (Object.keys(proposed).length === 0) {
-    return invalid('Propose at least one of displayName, focusIntention, or tone.')
+  if (input.beliefs !== undefined) {
+    const beliefs = parseModularProfile(input.beliefs)
+    if (beliefs === null) {
+      return invalid(
+        'beliefs must be self-supplied modular values. Birth data, accounts, and inferred fields are not allowed.',
+      )
+    }
+    proposed.beliefs = beliefs
   }
 
-  const confirmationId = optionalString(input.confirmationId)
-  return resolveGate(state, confirmationId, {
+  if (Object.keys(proposed).length === 0) {
+    return invalid(
+      'Propose at least one of displayName, focusIntention, tone, or beliefs.',
+    )
+  }
+
+  return resolveGate(state, optionalString(input.confirmationId), {
     kind: 'profile_update',
     summary: profileUpdateSummary(proposed),
     payload: { kind: 'profile_update', proposed },
     onApproved: (current) =>
-      current.confirmation.status === 'approved'
-      && current.confirmation.payload.kind === 'profile_update'
+      current.confirmation.status === 'approved' &&
+      current.confirmation.payload.kind === 'profile_update'
         ? current.confirmation.payload.proposed
         : {},
   })
 }
 
-function generateForecastTool(
+function getResearchBrief(
   state: AppState,
   input: Record<string, unknown>,
 ): ToolRun {
-  const actions: AppAction[] = []
-  let working = state
-
-  if (input.horizon !== undefined) {
-    if (!isHorizon(input.horizon)) {
-      return invalid('horizon must be daily, weekly, or yearly.')
-    }
-    actions.push({ type: 'SET_HORIZON', horizon: input.horizon })
-    working = { ...working, horizon: input.horizon }
-  }
-
-  if (working.profile.focusIntention.trim().length === 0) {
+  if (state.profile.focusIntention.trim().length === 0) {
     return {
       result: {
         ok: false,
         code: 'focus_required',
-        message: 'A focus intention is required before a forecast can be generated.',
+        message: 'A focus intention is required before a research brief exists.',
+      },
+      actions: [],
+    }
+  }
+  if (!hasBeliefModule(state.profile.beliefs)) {
+    return {
+      result: {
+        ok: false,
+        code: 'no_brief',
+        message: 'At least one belief-system module is required for a research brief.',
       },
       actions: [],
     }
   }
 
-  actions.push({ type: 'GENERATE_FORECAST' })
-  return {
-    result: {
-      ok: true,
-      data: {
-        horizon: working.horizon,
-        generated: true,
-        mode: 'regenerate',
+  const brief = buildExactBrief({
+    horizon: state.horizon,
+    focus: state.profile.focusIntention,
+    tone: state.profile.tone,
+    beliefs: state.profile.beliefs,
+  })
+  if (brief === null) {
+    return {
+      result: {
+        ok: false,
+        code: 'no_brief',
+        message: 'A research brief is not available for this profile.',
       },
+      actions: [],
+    }
+  }
+
+  const fields = briefAccessFields(state.profile)
+  const snapshot = briefConsentSnapshot(brief)
+  const payload: Extract<ConfirmationPayload, { kind: 'research_brief' }> = {
+    kind: 'research_brief',
+    horizon: brief.horizon,
+    briefDigest: briefDigest(brief),
+    fields,
+    snapshot,
+  }
+  return resolveGate(state, optionalString(input.confirmationId), {
+    kind: 'research_brief',
+    summary:
+      'An agent wants the exact research brief, which includes your focus, tone, and the self-supplied belief fields already on this page. You can deny this.',
+    payload,
+    onApproved: (current) => {
+      if (
+        current.confirmation.status !== 'approved' ||
+        current.confirmation.payload.kind !== 'research_brief'
+      ) {
+        return {
+          stale: true,
+          message:
+            'Your profile changed after this request. Ask again to see the current brief.',
+        }
+      }
+      const approved = current.confirmation.payload
+      const live = buildExactBrief({
+        horizon: current.horizon,
+        focus: current.profile.focusIntention,
+        tone: current.profile.tone,
+        beliefs: current.profile.beliefs,
+      })
+      if (live === null || briefDigest(live) !== approved.briefDigest) {
+        return {
+          stale: true,
+          message:
+            'Your profile changed after this request. Ask again to see the current brief.',
+        }
+      }
+      return {
+        horizon: approved.horizon,
+        focus: approved.snapshot.focus,
+        tone: approved.snapshot.tone,
+        requestedLenses: approved.snapshot.requestedLenses,
+        skippedLenses: live.skippedLenses,
+        beliefs: live.beliefs,
+        caps: {
+          maxSources: PACKET_BOUNDS.maxSources,
+          maxSections: PACKET_BOUNDS.maxSections,
+        },
+        exhaustive: false,
+      }
     },
+  })
+}
+
+function submitReadingPacket(
+  state: AppState,
+  input: Record<string, unknown>,
+): ToolRun {
+  const op = input.op
+  if (!isPacketOp(op)) {
+    return invalid(
+      'op must be begin, append_sources, append_content, finalize, or cancel.',
+    )
+  }
+
+  const actions: ToolAction[] = []
+  switch (op) {
+    case 'begin': {
+      let horizon = state.horizon
+      if (input.horizon !== undefined) {
+        if (!isHorizon(input.horizon)) {
+          return invalid('horizon must be daily, weekly, or yearly.')
+        }
+        horizon = input.horizon
+      }
+      actions.push({ type: 'INTAKE_BEGIN', horizon })
+      break
+    }
+    case 'append_sources': {
+      if (!Array.isArray(input.sources)) {
+        return invalid('append_sources needs a sources array.')
+      }
+      actions.push({ type: 'INTAKE_APPEND_SOURCES', sources: input.sources })
+      break
+    }
+    case 'append_content': {
+      if (!Array.isArray(input.content)) {
+        return invalid('append_content needs a content array.')
+      }
+      actions.push({ type: 'INTAKE_APPEND_SECTIONS', sections: input.content })
+      break
+    }
+    case 'finalize':
+      actions.push({ type: 'INTAKE_FINALIZE' })
+      break
+    case 'cancel':
+      actions.push({ type: 'INTAKE_CANCEL' })
+      break
+    default: {
+      const _exhaustive: never = op
+      return _exhaustive
+    }
+  }
+
+  const next = actions.reduce(appReducer, state)
+  const view = packetView(next)
+  if (next.intake.status === 'rejected') {
+    return {
+      result: {
+        ok: false,
+        code: 'invalid_input',
+        message: next.intake.reason,
+      },
+      actions,
+    }
+  }
+  return {
+    result: { ok: true, data: view },
     actions,
   }
 }
 
-function inspectEvidence(
+function proposeChoicePlan(
   state: AppState,
   input: Record<string, unknown>,
 ): ToolRun {
-  const forecast = currentForecast(state)
-  if (forecast === null) {
-    return {
-      result: {
-        ok: false,
-        code: 'no_forecast',
-        message: 'No forecast is in memory for this horizon yet.',
-      },
-      actions: [],
-    }
+  if (
+    input.status !== undefined ||
+    input.mark !== undefined ||
+    input.resonance !== undefined ||
+    input.persist !== undefined ||
+    input.export !== undefined
+  ) {
+    return invalid(
+      'An agent cannot mark resonance, accept or dismiss steps, persist, export, or erase.',
+    )
   }
-
-  if (input.sectionId !== undefined) {
-    if (!isSectionId(input.sectionId)) {
-      return invalid('sectionId is not a known report section.')
-    }
-    const section = forecast.sections.find((entry) => entry.id === input.sectionId)
-    if (section === undefined) {
-      return invalid('That section is not in the current forecast.')
-    }
-    return {
-      result: {
-        ok: true,
-        data: {
-          section: { id: section.id, title: section.title },
-          evidence: evidenceForSection(forecast, section),
-          uncertainty: uncertaintyFor(forecast),
-        },
-      },
-      actions: [],
-    }
-  }
-
-  if (input.evidenceId !== undefined) {
-    const evidenceId = requiredString(input.evidenceId)
-    if (evidenceId === null) {
-      return invalid('evidenceId must be a string.')
-    }
-    const item = forecast.evidence.find((entry) => entry.id === evidenceId)
-    if (item === undefined) {
-      return invalid('That evidence id is not in the current forecast.')
-    }
-    return {
-      result: {
-        ok: true,
-        data: {
-          evidence: item,
-          citedBy: sectionsCitingEvidence(forecast, evidenceId).map((section) => ({
-            id: section.id,
-            title: section.title,
-          })),
-        },
-      },
-      actions: [],
-    }
-  }
-
-  return {
-    result: {
-      ok: true,
-      data: {
-        cockpit: {
-          horizon: state.horizon,
-          name: HORIZON_BY_ID[state.horizon].label,
-          tagline: HORIZON_BY_ID[state.horizon].tagline,
-          windowDescription: HORIZON_BY_ID[state.horizon].windowDescription,
-          generatedAt: forecast.generatedAt,
-        },
-        coverage: forecast.coverage,
-        uncertainty: uncertaintyFor(forecast),
-        evidence: forecast.evidence,
-        sections: forecast.sections.map((section) => ({
-          id: section.id,
-          title: section.title,
-          evidenceIds: section.evidenceIds,
-        })),
-      },
-    },
-    actions: [],
-  }
-}
-
-function draftChoicePlan(
-  state: AppState,
-  input: Record<string, unknown>,
-): ToolRun {
   const plan = currentPlan(state)
   if (plan === null) {
     return {
       result: {
         ok: false,
         code: 'no_plan',
-        message: 'No choice plan is in memory yet. Generate a forecast first.',
+        message: 'No choice plan is in memory yet. The person creates the plan on the page.',
       },
       actions: [],
     }
   }
-
-  const action = input.action
-  if (action === 'set_status') {
-    const stepId = requiredString(input.stepId)
-    if (stepId === null || !isStepStatus(input.status)) {
-      return invalid('set_status needs stepId and a proposed, accepted, or dismissed status.')
-    }
-    if (!plan.steps.some((step) => step.id === stepId)) {
-      return invalid('That step is not on the current plan.')
-    }
-    return {
-      result: { ok: true, data: { stepId, status: input.status } },
-      actions: [{ type: 'SET_STEP_STATUS', stepId, status: input.status }],
-    }
+  if (!Array.isArray(input.titles) || input.titles.length === 0) {
+    return invalid('propose_choice_plan needs a non-empty titles array.')
   }
-
-  if (action === 'set_note') {
-    const stepId = requiredString(input.stepId)
-    const userNote = requiredString(input.userNote)
-    if (stepId === null || userNote === null) {
-      return invalid('set_note needs stepId and userNote.')
-    }
-    if (!plan.steps.some((step) => step.id === stepId)) {
-      return invalid('That step is not on the current plan.')
-    }
-    return {
-      result: { ok: true, data: { stepId, userNote } },
-      actions: [{ type: 'SET_STEP_NOTE', stepId, userNote }],
-    }
+  if (input.titles.length > PLAN_BOUNDS.maxProposedTitles) {
+    return invalid(
+      `propose_choice_plan accepts at most ${PLAN_BOUNDS.maxProposedTitles} titles.`,
+    )
   }
-
-  if (action === 'add_step') {
-    const title = requiredString(input.title)
-    if (title === null || title.trim().length === 0) {
-      return invalid('add_step needs a non-empty title.')
+  const titles: string[] = []
+  for (const title of input.titles) {
+    if (typeof title !== 'string' || title.trim().length === 0) {
+      return invalid('Each proposed title must be a non-empty string.')
     }
-    const userNote =
-      input.userNote === undefined ? '' : requiredString(input.userNote)
-    if (userNote === null) {
-      return invalid('userNote must be a string.')
+    const trimmed = title.trim()
+    if (trimmed.length > PLAN_BOUNDS.maxTitleLength) {
+      return invalid(
+        `Each proposed title must be at most ${PLAN_BOUNDS.maxTitleLength} characters.`,
+      )
     }
-    const cleanTitle = title.trim()
-    return {
-      result: { ok: true, data: { title: cleanTitle, userNote } },
-      actions: [
-        {
-          type: 'ADD_CUSTOM_STEP',
-          stepId: createCustomStepId(),
-          title: cleanTitle,
-          userNote,
-        },
-      ],
-    }
+    titles.push(trimmed)
   }
-
-  if (action === 'remove_step') {
-    const stepId = requiredString(input.stepId)
-    if (stepId === null) {
-      return invalid('remove_step needs stepId.')
-    }
-    const step = plan.steps.find((entry) => entry.id === stepId)
-    if (step === undefined || step.origin !== 'custom') {
-      return invalid('Only a custom step can be removed.')
-    }
-    return {
-      result: { ok: true, data: { stepId } },
-      actions: [{ type: 'REMOVE_CUSTOM_STEP', stepId }],
-    }
+  const remaining = PLAN_BOUNDS.maxStepsPerPlan - plan.steps.length
+  if (remaining <= 0) {
+    return invalid(`The plan already has ${PLAN_BOUNDS.maxStepsPerPlan} steps.`)
   }
-
-  return invalid('action must be set_status, set_note, add_step, or remove_step.')
+  const accepted = titles.slice(0, remaining)
+  const actions: ToolAction[] = accepted.map((title) => ({
+    type: 'ADD_CUSTOM_STEP',
+    stepId: createCustomStepId(),
+    title,
+    userNote: '',
+  }))
+  return {
+    result: {
+      ok: true,
+      data: { proposed: accepted, status: 'proposed' as const },
+    },
+    actions,
+  }
 }
 
 function requestPlanSave(
@@ -416,8 +467,7 @@ function requestPlanSave(
     }
   }
 
-  const confirmationId = optionalString(input.confirmationId)
-  return resolveGate(state, confirmationId, {
+  return resolveGate(state, optionalString(input.confirmationId), {
     kind: 'plan_save',
     summary:
       'An agent wants you to approve this choice plan. Approving the plan does not turn on local saving. A separate checkbox can also save this session in this browser.',
@@ -433,38 +483,135 @@ function requestPlanSave(
   })
 }
 
-function requestExternalShare(
-  state: AppState,
-  input: Record<string, unknown>,
-): ToolRun {
-  let include: ShareInclude[] = ['profile', 'forecast', 'plan']
-  if (input.include !== undefined) {
-    if (!Array.isArray(input.include) || input.include.length === 0) {
-      return invalid('include must be a non-empty array of profile, forecast, or plan.')
+function inspectReading(state: AppState) {
+  const now = mustInstant(Date.now())
+  const adopted = currentReading(state)
+  if (adopted !== null) {
+    return {
+      status: 'adopted' as const,
+      horizon: adopted.horizon,
+      digest: adopted.packetDigest,
+      coverage: {
+        sourcesConsidered: adopted.coverage.sourcesConsidered,
+        sourcesUsed: adopted.coverage.sourcesUsed,
+        stoppingReason: adopted.coverage.stoppingReason,
+        exhaustive: false,
+      },
+      supported: adopted.sections.map((section) => section.id),
+      skipped: adopted.skippedLenses.map((item) => item.lens),
+      evidence: adopted.sources.map((source) => ({
+        id: source.id,
+        title: source.title,
+        domain: source.domain,
+      })),
+      sections: adopted.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+      })),
     }
-    const parsed: ShareInclude[] = []
-    for (const item of input.include) {
-      if (!isShareInclude(item)) {
-        return invalid('include entries must be profile, forecast, or plan.')
-      }
-      if (!parsed.includes(item)) {
-        parsed.push(item)
-      }
-    }
-    include = parsed
   }
 
-  const confirmationId = optionalString(input.confirmationId)
-  return resolveGate(state, confirmationId, {
-    kind: 'external_share',
-    summary: `An agent wants permission to share ${include.join(', ')} with a future Gemini research run. Approval is recorded only. This slice does not send anything.`,
-    payload: {
-      kind: 'external_share',
-      destination: 'gemini-research',
-      include,
-    },
-    onApproved: (current) => current.externalShare,
-  })
+  const staged = state.desk.staged
+  if (staged !== null) {
+    const expired = isStagedExpired(staged, now)
+    return {
+      status: expired ? ('expired' as const) : ('staged' as const),
+      horizon: staged.packet.horizon,
+      digest: staged.digest,
+      coverage: {
+        sourcesConsidered: staged.packet.sources.length,
+        sourcesUsed: staged.packet.sources.length,
+        stoppingReason:
+          'This packet is staged for review. It is not adopted and is not an exhaustive search.',
+        exhaustive: false,
+      },
+      supported: staged.packet.sections.map((section) => section.id),
+      skipped: [],
+      evidence: staged.packet.sources.map((source) => ({
+        id: source.id,
+        title: source.title,
+        domain: source.domain,
+      })),
+      sections: staged.packet.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+      })),
+    }
+  }
+
+  const fixture = currentForecast(state)
+  if (fixture !== null) {
+    return {
+      status: 'legacy_fixture' as const,
+      horizon: fixture.horizon,
+      digest: null,
+      coverage: {
+        sourcesConsidered: fixture.coverage.sourcesConsidered,
+        sourcesUsed: fixture.coverage.sourcesUsed,
+        stoppingReason: fixture.coverage.stoppingReason,
+        exhaustive: false,
+      },
+      supported: fixture.sections.map((section) => section.id),
+      skipped: [],
+      evidence: fixture.evidence.map((item) => ({
+        id: item.id,
+        title: item.label,
+        domain: null,
+      })),
+      sections: fixture.sections.map((section) => ({
+        id: section.id,
+        title: section.title,
+      })),
+    }
+  }
+
+  return {
+    status: 'empty' as const,
+    horizon: state.horizon,
+    digest: null,
+    coverage: null,
+    supported: [],
+    skipped: [],
+    evidence: [],
+    sections: [],
+    fallback: 'manual_import',
+  }
+}
+
+function packetView(state: AppState) {
+  const progress = intakeProgress(state.intake)
+  if (state.intake.status === 'ready') {
+    return {
+      status: state.intake.status,
+      adopted: false,
+      digest: state.intake.review.digest,
+      untrustedAsData: state.intake.review.untrustedAsData,
+      skipped: state.intake.review.skipped,
+      progress,
+    }
+  }
+  if (state.intake.status === 'adopted') {
+    return {
+      status: state.intake.status,
+      adopted: true,
+      digest: state.intake.digest,
+      progress,
+    }
+  }
+  if (state.intake.status === 'rejected') {
+    return {
+      status: state.intake.status,
+      adopted: false,
+      code: state.intake.code,
+      reason: state.intake.reason,
+      progress,
+    }
+  }
+  return {
+    status: state.intake.status,
+    adopted: false,
+    progress,
+  }
 }
 
 function resolveGate(
@@ -477,10 +624,29 @@ function resolveGate(
     onApproved: (current: AppState) => unknown
   },
 ): ToolRun {
-  const expectedId = confirmationIdFor(spec.kind)
+  const expectedId = confirmationIdForPayload(spec.payload)
   const current = state.confirmation
+  const presentedId =
+    confirmationId !== undefined &&
+    current.status !== 'idle' &&
+    current.id === confirmationId
+      ? current.id
+      : confirmationId === expectedId
+        ? expectedId
+        : undefined
 
-  if (confirmationId !== undefined && confirmationId !== expectedId) {
+  if (confirmationId !== undefined && presentedId === undefined) {
+    if (spec.kind === 'research_brief') {
+      return {
+        result: {
+          ok: false,
+          code: 'stale_confirmation',
+          message:
+            'Your profile changed after this request. Ask again to see the current brief.',
+        },
+        actions: [],
+      }
+    }
     return {
       result: {
         ok: false,
@@ -491,32 +657,69 @@ function resolveGate(
     }
   }
 
-  if (confirmationId === expectedId) {
-    if (current.status === 'approved' && current.id === expectedId) {
+  if (presentedId !== undefined) {
+    if (current.status !== 'idle' && current.kind !== spec.kind) {
       return {
-        result: { ok: true, data: spec.onApproved(state) },
-        actions: [{ type: 'CONSUME_CONFIRMATION', id: expectedId }],
+        result: {
+          ok: false,
+          code: 'unknown_confirmation',
+          message: 'That confirmation id does not match this request.',
+        },
+        actions: [],
       }
     }
-    if (current.status === 'denied' && current.id === expectedId) {
+    const ticket = state.desk.ticket
+    const now = mustInstant(Date.now())
+    if (
+      (ticket.status === 'pending' || ticket.status === 'approved') &&
+      ticket.id === presentedId &&
+      isTicketExpired(ticket, now)
+    ) {
+      return {
+        result: {
+          ok: false,
+          code: 'stale_confirmation',
+          message: 'This confirmation expired. Ask again.',
+        },
+        actions: [{ type: 'CONSUME_CONFIRMATION', id: presentedId }],
+      }
+    }
+    if (current.status === 'approved' && current.id === presentedId) {
+      const data = spec.onApproved(state)
+      if (isStaleApproved(data)) {
+        return {
+          result: {
+            ok: false,
+            code: 'stale_confirmation',
+            message: data.message,
+          },
+          actions: [{ type: 'CONSUME_CONFIRMATION', id: presentedId }],
+        }
+      }
+      return {
+        result: { ok: true, data },
+        actions: [{ type: 'CONSUME_CONFIRMATION', id: presentedId }],
+      }
+    }
+    if (current.status === 'denied' && current.id === presentedId) {
       return {
         result: {
           ok: false,
           code: 'denied',
           message: 'The person denied this confirmation.',
-          confirmationId: expectedId,
+          confirmationId: presentedId,
           kind: spec.kind,
         },
-        actions: [{ type: 'CONSUME_CONFIRMATION', id: expectedId }],
+        actions: [{ type: 'CONSUME_CONFIRMATION', id: presentedId }],
       }
     }
-    if (current.status === 'pending' && current.id === expectedId) {
+    if (current.status === 'pending' && current.id === presentedId) {
       return {
         result: {
           ok: false,
           code: 'needs_confirmation',
           message: current.summary,
-          confirmationId: expectedId,
+          confirmationId: presentedId,
           kind: spec.kind,
         },
         actions: [],
@@ -546,6 +749,18 @@ function resolveGate(
   }
 
   if (current.status === 'pending' && current.kind === spec.kind) {
+    if (current.id !== expectedId) {
+      return {
+        result: {
+          ok: false,
+          code: 'confirmation_busy',
+          message: 'Another confirmation is already waiting.',
+          confirmationId: current.id,
+          kind: current.kind,
+        },
+        actions: [],
+      }
+    }
     return {
       result: {
         ok: false,
@@ -588,12 +803,117 @@ function resolveGate(
         kind: spec.kind,
         summary: spec.summary,
         payload: spec.payload,
+        now: mustInstant(Date.now()),
       },
     ],
   }
 }
 
-function profileUpdateSummary(proposed: Partial<DerivedProfile>): string {
+function projectProfile(
+  profile: PersonProfile,
+  fields: readonly ProfileAccessField[],
+): Record<string, unknown> {
+  const data: Record<string, unknown> = {}
+  for (const field of fields) {
+    switch (field) {
+      case 'displayName':
+        data.displayName = profile.displayName
+        break
+      case 'focusIntention':
+        data.focusIntention = profile.focusIntention
+        break
+      case 'tone':
+        data.tone = profile.tone
+        break
+      case 'beliefs.western':
+        if (profile.beliefs.western !== undefined) {
+          data.beliefs = {
+            ...(asRecord(data.beliefs) ?? {}),
+            western: profile.beliefs.western,
+          }
+        }
+        break
+      case 'beliefs.numerology':
+        if (profile.beliefs.numerology !== undefined) {
+          data.beliefs = {
+            ...(asRecord(data.beliefs) ?? {}),
+            numerology: profile.beliefs.numerology,
+          }
+        }
+        break
+      case 'beliefs.chinese':
+        if (profile.beliefs.chinese !== undefined) {
+          data.beliefs = {
+            ...(asRecord(data.beliefs) ?? {}),
+            chinese: profile.beliefs.chinese,
+          }
+        }
+        break
+      case 'beliefs.bazi':
+        if (profile.beliefs.bazi !== undefined) {
+          data.beliefs = {
+            ...(asRecord(data.beliefs) ?? {}),
+            bazi: profile.beliefs.bazi,
+          }
+        }
+        break
+      case 'beliefs.humanDesign':
+        if (profile.beliefs.humanDesign !== undefined) {
+          data.beliefs = {
+            ...(asRecord(data.beliefs) ?? {}),
+            humanDesign: profile.beliefs.humanDesign,
+          }
+        }
+        break
+      default: {
+        const _exhaustive: never = field
+        return _exhaustive
+      }
+    }
+  }
+  return data
+}
+
+function briefAccessFields(profile: PersonProfile): ProfileAccessField[] {
+  const fields: ProfileAccessField[] = ['focusIntention', 'tone']
+  if (profile.beliefs.western !== undefined) {
+    fields.push('beliefs.western')
+  }
+  if (profile.beliefs.numerology !== undefined) {
+    fields.push('beliefs.numerology')
+  }
+  if (profile.beliefs.chinese !== undefined) {
+    fields.push('beliefs.chinese')
+  }
+  if (profile.beliefs.bazi !== undefined) {
+    fields.push('beliefs.bazi')
+  }
+  if (profile.beliefs.humanDesign !== undefined) {
+    fields.push('beliefs.humanDesign')
+  }
+  return fields
+}
+
+function parseAccessFields(value: unknown): ProfileAccessField[] | null {
+  if (value === undefined) {
+    return [...DEFAULT_PROFILE_ACCESS_FIELDS]
+  }
+  if (!Array.isArray(value) || value.length === 0) {
+    return null
+  }
+  const parsed: ProfileAccessField[] = []
+  for (const item of value) {
+    if (!isAccessField(item)) {
+      return null
+    }
+    if (!parsed.includes(item)) {
+      parsed.push(item)
+    }
+  }
+  return parsed
+}
+
+function profileUpdateSummary(proposed: ProfileUpdatePatch): string {
   const fields: string[] = []
   if (proposed.displayName !== undefined) {
     fields.push('display name')
@@ -603,6 +923,9 @@ function profileUpdateSummary(proposed: Partial<DerivedProfile>): string {
   }
   if (proposed.tone !== undefined) {
     fields.push('tone')
+  }
+  if (proposed.beliefs !== undefined) {
+    fields.push('belief-system fields')
   }
   return `An agent wants to change ${fields.join(' and ')}. The exact diff is on this page only.`
 }
@@ -614,6 +937,18 @@ function invalid(message: string): ToolRun {
   }
 }
 
+function isStaleApproved(
+  value: unknown,
+): value is { stale: true; message: string } {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+  if (!('stale' in value) || !('message' in value)) {
+    return false
+  }
+  return value.stale === true && typeof value.message === 'string'
+}
+
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
@@ -622,7 +957,7 @@ function requiredString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
 }
 
-function isTone(value: unknown): value is DerivedProfile['tone'] {
+function isTone(value: unknown): value is PersonProfile['tone'] {
   return (TONES as readonly unknown[]).includes(value)
 }
 
@@ -630,14 +965,19 @@ function isHorizon(value: unknown): value is HorizonId {
   return (HORIZONS as readonly unknown[]).includes(value)
 }
 
-function isStepStatus(value: unknown): value is ChoiceStepStatus {
-  return (STEP_STATUSES as readonly unknown[]).includes(value)
+function isPacketOp(
+  value: unknown,
+): value is (typeof PACKET_OPS)[number] {
+  return (PACKET_OPS as readonly unknown[]).includes(value)
 }
 
-function isShareInclude(value: unknown): value is ShareInclude {
-  return (SHARE_INCLUDES as readonly unknown[]).includes(value)
+function isAccessField(value: unknown): value is ProfileAccessField {
+  return (PROFILE_ACCESS_FIELDS as readonly unknown[]).includes(value)
 }
 
-function isSectionId(value: unknown): value is ReportSectionId {
-  return (SECTION_IDS as readonly unknown[]).includes(value)
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+  return null
 }

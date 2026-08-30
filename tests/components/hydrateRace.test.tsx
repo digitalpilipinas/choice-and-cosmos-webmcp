@@ -2,7 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
-import { FREE_WILL_NOTE } from '../../src/domain/loop.ts'
+import { FREE_WILL_NOTE, fixtureDerivedProfile } from '../../src/domain/loop.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { getItem } from '../../src/persistence/db.ts'
 import type { BootstrapResult } from '../../src/persistence/sessionStore.ts'
@@ -24,6 +24,8 @@ import {
   clearSavedData,
   grantConsentAndSave,
 } from '../../src/persistence/sessionStore.ts'
+
+const EMPTY_HORIZONS = { daily: null, weekly: null, yearly: null }
 
 const FOCUS = 'typed before hydrate'
 const STORED_FOCUS = 'stored from another tab'
@@ -55,7 +57,7 @@ describe('delayed persistence hydrate', () => {
     resolveBootstrap({
       kind: 'hydrated',
       session: {
-        schemaVersion: 1,
+        schemaVersion: 3,
         savedAt: '2026-08-26T12:00:00.000Z',
         phase: 'cosmos',
         horizon: 'yearly',
@@ -63,9 +65,12 @@ describe('delayed persistence hydrate', () => {
           displayName: 'You',
           focusIntention: STORED_FOCUS,
           tone: 'bold',
+          beliefs: {},
         },
-        forecastsByHorizon: { daily: null, weekly: null, yearly: null },
-        plansByHorizon: { daily: null, weekly: null, yearly: null },
+        forecastsByHorizon: EMPTY_HORIZONS,
+        readingsByHorizon: EMPTY_HORIZONS,
+        resonanceByHorizon: EMPTY_HORIZONS,
+        plansByHorizon: EMPTY_HORIZONS,
       },
     })
 
@@ -81,8 +86,9 @@ describe('delayed persistence hydrate', () => {
       displayName: 'You',
       focusIntention: STORED_FOCUS,
       tone: 'bold' as const,
+      beliefs: {},
     }
-    const forecast = generateForecast(profile, 'yearly')
+    const forecast = generateForecast(fixtureDerivedProfile(profile), 'yearly')
     const plan = {
       horizon: 'yearly' as const,
       createdAt: forecast.generatedAt,
@@ -94,6 +100,8 @@ describe('delayed persistence hydrate', () => {
       horizon: 'yearly' as const,
       profile,
       forecastsByHorizon: { daily: null, weekly: null, yearly: forecast },
+      readingsByHorizon: EMPTY_HORIZONS,
+      resonanceByHorizon: EMPTY_HORIZONS,
       plansByHorizon: { daily: null, weekly: null, yearly: plan },
     }
     const saved = await grantConsentAndSave(stored)
@@ -117,7 +125,7 @@ describe('delayed persistence hydrate', () => {
     resolveBootstrap({
       kind: 'hydrated',
       session: {
-        schemaVersion: 1,
+        schemaVersion: 3,
         savedAt: saved.savedAt,
         ...stored,
       },
@@ -147,8 +155,9 @@ describe('delayed persistence hydrate', () => {
       displayName: 'You',
       focusIntention: STORED_FOCUS,
       tone: 'bold' as const,
+      beliefs: {},
     }
-    const forecast = generateForecast(profile, 'yearly')
+    const forecast = generateForecast(fixtureDerivedProfile(profile), 'yearly')
     const plan = {
       horizon: 'yearly' as const,
       createdAt: forecast.generatedAt,
@@ -160,6 +169,8 @@ describe('delayed persistence hydrate', () => {
       horizon: 'yearly' as const,
       profile,
       forecastsByHorizon: { daily: null, weekly: null, yearly: forecast },
+      readingsByHorizon: EMPTY_HORIZONS,
+      resonanceByHorizon: EMPTY_HORIZONS,
       plansByHorizon: { daily: null, weekly: null, yearly: plan },
     }
     const saved = await grantConsentAndSave(stored)
@@ -191,13 +202,13 @@ describe('delayed persistence hydrate', () => {
     await waitFor(() => {
       expect(registered.size).toBe(TOOL_NAMES.length)
     })
+    await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
+    expect(await screen.findByRole('heading', { name: 'Cosmos' })).toBeInTheDocument()
 
-    const generate = registered.get('generate_forecast')
     const save = registered.get('request_plan_save')
-    if (generate === undefined || save === undefined) {
-      throw new Error('expected generate_forecast and request_plan_save')
+    if (save === undefined) {
+      throw new Error('expected request_plan_save')
     }
-    await generate.execute({})
     await save.execute({})
 
     const dialog = await screen.findByRole('dialog', {
@@ -214,7 +225,7 @@ describe('delayed persistence hydrate', () => {
     resolveBootstrap({
       kind: 'hydrated',
       session: {
-        schemaVersion: 1,
+        schemaVersion: 3,
         savedAt: saved.savedAt,
         ...stored,
       },

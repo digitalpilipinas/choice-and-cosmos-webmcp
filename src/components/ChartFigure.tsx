@@ -1,4 +1,4 @@
-import type { HorizonChartModel } from '../domain/synthesis.ts'
+import type { ChartModel } from '../domain/studioView.ts'
 
 const CHART_WIDTH = 420
 const CHART_HEIGHT = 140
@@ -6,12 +6,12 @@ const PLOT_TOP = 18
 const PLOT_BOTTOM = 104
 const PLOT_HEIGHT = PLOT_BOTTOM - PLOT_TOP
 
-export function HorizonChart({ model }: { model: HorizonChartModel }) {
-  const max = Math.max(1, ...model.slots.map((slot) => slot.catalogWeight))
+export function ChartFigure({ model }: { model: ChartModel }) {
+  const max = Math.max(1, ...model.slots.map((slot) => slot.value))
   const slotWidth = CHART_WIDTH / model.slots.length
   const barWidth = Math.min(36, slotWidth * 0.55)
   const description = `${model.title}. ${model.slots
-    .map((slot) => `${slot.label} ${slot.catalogWeight}`)
+    .map((slot) => `${slot.label} ${slot.value}`)
     .join('. ')}. ${model.caption}`
 
   return (
@@ -23,7 +23,7 @@ export function HorizonChart({ model }: { model: HorizonChartModel }) {
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
       >
         {model.slots.map((slot, index) => {
-          const barHeight = (slot.catalogWeight / max) * PLOT_HEIGHT
+          const barHeight = (slot.value / max) * PLOT_HEIGHT
           const x = index * slotWidth + (slotWidth - barWidth) / 2
           const y = PLOT_BOTTOM - barHeight
           return (
@@ -41,7 +41,7 @@ export function HorizonChart({ model }: { model: HorizonChartModel }) {
                 y={y - 4}
                 textAnchor="middle"
               >
-                {slot.catalogWeight}
+                {slot.value}
               </text>
               <text
                 className="horizon-chart-label"
@@ -56,18 +56,18 @@ export function HorizonChart({ model }: { model: HorizonChartModel }) {
         })}
       </svg>
       <table className="horizon-chart-fallback">
-        <caption>Catalog weight by window part. Integer counts, not probabilities.</caption>
+        <caption>{model.caption}</caption>
         <thead>
           <tr>
-            <th scope="col">Window part</th>
-            <th scope="col">Catalog weight</th>
+            <th scope="col">Slot</th>
+            <th scope="col">{model.valueHeader}</th>
           </tr>
         </thead>
         <tbody>
           {model.slots.map((slot) => (
             <tr key={slot.id}>
               <th scope="row">{slot.label}</th>
-              <td>{slot.catalogWeight}</td>
+              <td>{slot.value}</td>
             </tr>
           ))}
         </tbody>

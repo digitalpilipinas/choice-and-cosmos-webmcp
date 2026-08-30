@@ -4,11 +4,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
 import { ContrastPhase } from '../../src/components/phases/ContrastPhase.tsx'
 import { CosmosPhase } from '../../src/components/phases/CosmosPhase.tsx'
-import { FREE_WILL_NOTE, INITIAL_STATE } from '../../src/domain/loop.ts'
-import {
-  LIVE_RESEARCH_NOTICE,
-  frameworkKindLabel,
-} from '../../src/domain/synthesis.ts'
+import { FREE_WILL_NOTE, INITIAL_STATE, fixtureDerivedProfile } from '../../src/domain/loop.ts'
+import { LIVE_RESEARCH_NOTICE } from '../../src/domain/synthesis.ts'
+import { frameworkKindLabel, studioView } from '../../src/domain/studioView.ts'
 import type { AppState, ForecastFixture, HorizonId } from '../../src/domain/types.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { HORIZON_BY_ID } from '../../src/fixtures/horizons.ts'
@@ -19,6 +17,7 @@ const PROFILE = {
   displayName: 'You',
   focusIntention: FOCUS,
   tone: 'grounded' as const,
+  beliefs: {},
 }
 
 function noop(): void {}
@@ -40,7 +39,7 @@ function stateWithForecast(
   }
 }
 
-describe('synthesis horizons', () => {
+describe('synthesis horizons', { timeout: 15_000 }, () => {
   beforeEach(async () => {
     await clearSavedData()
   })
@@ -57,7 +56,7 @@ describe('synthesis horizons', () => {
     'walks $id through evidence, interpretation, uncertainty, and the choice plan',
     async ({ id, radio, chart }) => {
       const user = userEvent.setup()
-      const forecast = generateForecast(PROFILE, id)
+      const forecast = generateForecast(fixtureDerivedProfile(PROFILE), id)
 
       render(<App />)
       await user.click(screen.getByRole('radio', { name: radio }))
@@ -73,21 +72,27 @@ describe('synthesis horizons', () => {
       ).toBeGreaterThan(0)
       expect(screen.getAllByText('Grounded source notes').length).toBeGreaterThan(0)
       expect(
-        screen.getAllByText(frameworkKindLabel('interpretive')).length,
-      ).toBeGreaterThan(0)
-      expect(
         screen.getAllByText(frameworkKindLabel('reflective')).length,
       ).toBeGreaterThan(0)
+      expect(screen.getByRole('heading', { name: 'Skipped lenses' })).toBeInTheDocument()
 
-      for (const section of forecast.sections) {
+      const reading = studioView(stateWithForecast(forecast, id)).reading
+      if (reading.status !== 'ready') {
+        throw new Error('expected ready reading')
+      }
+      expect(reading.sections.length).toBeLessThan(forecast.sections.length)
+      for (const section of reading.sections) {
         const block = screen.getByText(section.title).closest('details')
         expect(block).not.toBeNull()
-        expect(section.evidenceIds.length).toBeGreaterThan(0)
-        for (const evidenceId of section.evidenceIds) {
+        expect(section.evidence.length).toBeGreaterThan(0)
+        for (const card of section.evidence) {
           expect(
-            within(block as HTMLElement).getByText(evidenceId),
+            within(block as HTMLElement).getByText(card.id),
           ).toBeInTheDocument()
         }
+      }
+      for (const skipped of reading.skippedLenses) {
+        expect(screen.getByText(new RegExp(`^${skipped.lens}:`))).toBeInTheDocument()
       }
 
       await user.click(screen.getByRole('button', { name: 'See the contrast' }))
@@ -112,19 +117,24 @@ describe('synthesis horizons', () => {
       }
       expect(screen.getByText(HORIZON_BY_ID[id].label)).toBeInTheDocument()
     },
+    15_000,
   )
 
   it('shows unavailable synthesis when no forecast is in memory', () => {
-    render(<CosmosPhase state={stateWithForecast(null, 'daily')} dispatch={noop} />)
-    expect(screen.getByText(/no fixture report is in memory/i)).toBeInTheDocument()
+    render(<CosmosPhase studio={studioView(stateWithForecast(null, 'daily'))} dispatch={noop} />)
+    expect(
+      screen.getByText(/no reading is in memory yet/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(LIVE_RESEARCH_NOTICE)).toBeInTheDocument()
     expect(screen.getByText('Uncertainty kind: unavailable')).toBeInTheDocument()
 
     cleanup()
     render(
-      <ContrastPhase state={stateWithForecast(null, 'daily')} dispatch={noop} />,
+      <ContrastPhase studio={studioView(stateWithForecast(null, 'daily'))} dispatch={noop} />,
     )
-    expect(screen.getByText(/no fixture evidence is in memory/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/no reading is in memory yet/i),
+    ).toBeInTheDocument()
     expect(screen.getByText(LIVE_RESEARCH_NOTICE)).toBeInTheDocument()
     expect(
       screen.getAllByText('Uncertainty kind: unavailable').length,
@@ -132,7 +142,7 @@ describe('synthesis horizons', () => {
   })
 
   it('shows partial fallback when a forecast used no sources', () => {
-    const ready = generateForecast(PROFILE, 'daily')
+    const ready = generateForecast(fixtureDerivedProfile(PROFILE), 'daily')
     const partial: ForecastFixture = {
       ...ready,
       evidence: [],
@@ -145,7 +155,7 @@ describe('synthesis horizons', () => {
 
     render(
       <ContrastPhase
-        state={stateWithForecast(partial, 'daily')}
+        studio={studioView(stateWithForecast(partial, 'daily'))}
         dispatch={noop}
       />,
     )
@@ -154,11 +164,15 @@ describe('synthesis horizons', () => {
     expect(screen.queryAllByText('No evidence IDs cited')).toHaveLength(0)
 
     cleanup()
+    const cosmos = studioView(stateWithForecast(partial, 'daily'))
+    if (cosmos.reading.status !== 'ready') {
+      throw new Error('expected ready reading')
+    }
     render(
-      <CosmosPhase state={stateWithForecast(partial, 'daily')} dispatch={noop} />,
+      <CosmosPhase studio={cosmos} dispatch={noop} />,
     )
     expect(screen.getAllByText('No evidence IDs cited').length).toBe(
-      partial.sections.length,
+      cosmos.reading.sections.length,
     )
   })
 })

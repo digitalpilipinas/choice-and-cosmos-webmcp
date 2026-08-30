@@ -1,10 +1,10 @@
-import type { UncertaintyState } from '../domain/types.ts'
+import type { StudioUncertainty } from '../domain/studioView.ts'
 
 export function UncertaintyPanel({
   state,
   compact = false,
 }: {
-  state: UncertaintyState
+  state: StudioUncertainty
   compact?: boolean
 }) {
   if (compact) {
@@ -14,7 +14,7 @@ export function UncertaintyPanel({
         {state.kind === 'unavailable' ? (
           <p>{state.reason}</p>
         ) : (
-          <p className="uncertainty-source">Source: {state.source}</p>
+          <p className="uncertainty-source">Source: {state.sourceLabel}</p>
         )}
       </aside>
     )
@@ -28,7 +28,7 @@ export function UncertaintyPanel({
         <p>{state.reason}</p>
       ) : (
         <>
-          <p className="uncertainty-source">Source: {state.source}</p>
+          <p className="uncertainty-source">Source: {state.sourceLabel}</p>
           <dl className="coverage-list">
             <div>
               <dt>Sources considered</dt>

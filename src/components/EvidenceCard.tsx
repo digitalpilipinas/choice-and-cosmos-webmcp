@@ -1,11 +1,11 @@
-import type { EvidenceCardView } from '../domain/synthesis.ts'
+import type { StudioEvidenceCard } from '../domain/studioView.ts'
 
 export function EvidenceCard({
   card,
   showCiting = false,
   headingId,
 }: {
-  card: EvidenceCardView
+  card: StudioEvidenceCard
   showCiting?: boolean
   headingId?: string
 }) {
@@ -18,26 +18,26 @@ export function EvidenceCard({
       <dl className="evidence-provenance">
         <div>
           <dt>Provenance method</dt>
-          <dd>
-            {card.method === 'local_fixture'
-              ? 'local_fixture'
-              : 'user_supplied_link'}
-          </dd>
+          <dd>{card.methodLabel}</dd>
         </div>
         <div>
           <dt>Provider</dt>
-          <dd>{card.provider}</dd>
+          <dd>{card.providerLabel}</dd>
         </div>
         <div>
           <dt>Retrieved at</dt>
-          <dd>{card.retrievedAt}</dd>
+          <dd>{card.retrievedAt ?? 'Not recorded'}</dd>
         </div>
         <div>
           <dt>Live URL</dt>
           <dd>
-            {card.url === null
-              ? 'None. Fixture examples do not invent live links.'
-              : card.url}
+            {card.url === null ? (
+              card.urlLabel
+            ) : (
+              <a href={card.url} rel="noreferrer">
+                {card.urlLabel}
+              </a>
+            )}
           </dd>
         </div>
       </dl>

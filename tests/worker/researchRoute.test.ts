@@ -25,39 +25,33 @@ describe('worker research route', () => {
     vi.restoreAllMocks()
   })
 
-  it('posts to the handler fixture path without touching assets or global fetch', async () => {
+  it('forwards POST /api/research to assets', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
       throw new Error('unexpected fetch')
     })
     const env = assetsEnv()
-    const response = await worker.fetch(
-      new Request(`http://choice.local${RESEARCH_API_PATH}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(validBody),
-      }),
-      env,
-    )
+    const request = new Request(`http://choice.local${RESEARCH_API_PATH}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validBody),
+    })
+    const response = await worker.fetch(request, env)
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
+    expect(env.ASSETS.fetch).toHaveBeenCalledWith(request)
     expect(response.status).toBe(200)
-    const body = (await response.json()) as {
-      outcome: string
-      coverage: { mode: string }
-    }
-    expect(body.outcome).toBe('ready')
-    expect(body.coverage.mode).toBe('fixture')
-    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
+    expect(await response.text()).toBe('spa')
     expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('returns 405 for GET on the research path without CORS or assets', async () => {
+  it('forwards GET on the research path to assets', async () => {
     const env = assetsEnv()
-    const response = await worker.fetch(
-      new Request(`http://choice.local${RESEARCH_API_PATH}`, { method: 'GET' }),
-      env,
-    )
-    expect(response.status).toBe(405)
-    expect(response.headers.get('access-control-allow-origin')).toBeNull()
-    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
+    const request = new Request(`http://choice.local${RESEARCH_API_PATH}`, {
+      method: 'GET',
+    })
+    const response = await worker.fetch(request, env)
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
+    expect(env.ASSETS.fetch).toHaveBeenCalledWith(request)
+    expect(response.status).toBe(200)
   })
 
   it('forwards other paths to assets', async () => {
@@ -70,28 +64,7 @@ describe('worker research route', () => {
     expect(await response.text()).toBe('spa')
   })
 
-  it('returns invalid_input for invalid JSON', async () => {
-    const env = assetsEnv()
-    const response = await worker.fetch(
-      new Request(`http://choice.local${RESEARCH_API_PATH}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: '{',
-      }),
-      env,
-    )
-    expect(response.status).toBe(400)
-    expect(await response.json()).toMatchObject({
-      outcome: 'error',
-      code: 'invalid_input',
-    })
-    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
-  })
-
-  it('does not invoke Gemini even when a fake Worker key is present', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(() => {
-      throw new Error('unexpected fetch')
-    })
+  it('does not echo a fake Worker key through assets', async () => {
     const env = {
       ...assetsEnv(),
       GEMINI_API_KEY: 'sk-test-gemini-not-real-xyz',
@@ -104,28 +77,20 @@ describe('worker research route', () => {
       }),
       env,
     )
-    expect(response.status).toBe(200)
-    const body = (await response.json()) as {
-      outcome: string
-      coverage: { mode: string }
-      stoppingReason?: string
-    }
-    expect(body.outcome).toBe('ready')
-    expect(body.coverage.mode).toBe('fixture')
-    expect(JSON.stringify(body)).not.toContain('sk-test-gemini-not-real-xyz')
-    expect(env.ASSETS.fetch).not.toHaveBeenCalled()
-    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(await response.text()).toBe('spa')
+    expect(env.ASSETS.fetch).toHaveBeenCalledOnce()
   })
 
-  it('does not commit a GEMINI_API_KEY value in wrangler.jsonc', () => {
+  it('does not commit a GEMINI_API_KEY value in wrangler.jsonc or worker source', () => {
     const wrangler = readFileSync(join(process.cwd(), 'wrangler.jsonc'), 'utf8')
     expect(wrangler).not.toMatch(/"GEMINI_API_KEY"\s*:/)
-    expect(wrangler).toMatch(/does not forward GEMINI_API_KEY/)
+    expect(wrangler).not.toMatch(/d1_databases/)
     const workerSource = readFileSync(
       join(process.cwd(), 'worker', 'index.ts'),
       'utf8',
     )
     expect(workerSource).not.toMatch(/GEMINI_API_KEY/)
-    expect(workerSource).not.toMatch(/env\.GEMINI/)
+    expect(workerSource).not.toMatch(/CF-Connecting-IP/)
+    expect(workerSource).not.toMatch(/sk-/)
   })
 })

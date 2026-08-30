@@ -1,8 +1,8 @@
 export const AGENT_UNAVAILABLE_REASON =
-  'This browser does not expose document.modelContext.registerTool. The loop still works by hand.'
+  'This browser does not expose document.modelContext.registerTool. The loop still works by hand, including structured ReadingPacketV1 import. Agent tools did not run.'
 
 export const AGENT_REGISTER_FAILED_REASON =
-  'This browser could not finish registering agent tools. The loop still works by hand.'
+  'This browser could not finish registering agent tools. The loop still works by hand, including structured ReadingPacketV1 import. Agent tools did not run.'
 
 export interface ModelContextTool {
   name: string

@@ -23,7 +23,7 @@ describe('contrast uncertainty', () => {
   it('renders the coverage-level copy for the generated forecast', async () => {
     const user = userEvent.setup()
     const forecast = generateForecast(
-      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded' },
+      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded', cosmic: {} },
       'daily',
     )
     const expected = COVERAGE_LEVEL_COPY[coverageLevel(forecast.coverage)]

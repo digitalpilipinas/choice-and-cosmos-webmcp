@@ -1,0 +1,142 @@
+:root {
+  --studio-fast: 120ms;
+  --studio-mid: 180ms;
+  --studio-slow: 280ms;
+  --studio-reading: var(--sans);
+  --studio-control: var(--ui);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --studio-rail: var(--bg-elevated);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --studio-rail: var(--bg-elevated);
+  }
+}
+
+@media (min-width: 1100px) {
+  #root {
+    width: min(1280px, 100%);
+  }
+}
+
+.studio-grid {
+  display: grid;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.studio-grid > * {
+  transition:
+    transform var(--studio-mid) ease,
+    opacity var(--studio-fast) ease;
+}
+
+.studio-canvas {
+  transition:
+    transform var(--studio-slow) ease,
+    opacity var(--studio-mid) ease;
+}
+
+.studio-canvas .reading-prose {
+  font-family: var(--studio-reading);
+}
+
+.studio-grid button,
+.studio-grid input,
+.studio-grid textarea,
+.studio-grid select {
+  font-family: var(--studio-control);
+}
+
+.studio-evidence {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.legacy-badge {
+  display: inline-block;
+  margin: 0 0 1rem;
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-family: var(--studio-control);
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
+}
+
+.resonance-list {
+  list-style: none;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.skipped-lenses {
+  margin: 0 0 1.25rem;
+}
+
+@media (min-width: 1100px) {
+  .studio-grid {
+    grid-template-columns: minmax(11rem, 14rem) minmax(0, 1fr) minmax(14rem, 18rem);
+  }
+
+  .studio-grid .phase-stepper {
+    grid-column: 1;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+  }
+
+  .studio-grid .phase-stepper ol {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-canvas {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .studio-evidence {
+    grid-column: 3;
+    grid-row: 1;
+    position: sticky;
+    top: 1rem;
+    max-height: calc(100dvh - 2rem);
+    overflow: auto;
+  }
+
+  .studio-grid .wizard-nav,
+  .studio-grid .nav-hint {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    position: relative;
+    z-index: 3;
+    background: var(--bg);
+  }
+}
+
+@media (max-width: 1099px) {
+  .studio-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-grid .phase-stepper {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: var(--bg);
+    padding: 0.35rem 0;
+  }
+
+  .studio-grid .phase-stepper ol {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+}

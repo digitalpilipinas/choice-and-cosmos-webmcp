@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   appReducer,
-  confirmationIdFor,
+  confirmationIdForPayload,
   INITIAL_STATE,
 } from '../../src/domain/loop.ts'
 import type { AppState } from '../../src/domain/types.ts'
-import { runTool } from '../../src/webmcp/tools.ts'
+import { profileAccessPayload, runTool } from '../../src/webmcp/tools.ts'
+import { SAMPLE_PACKET } from '../research/samplePacket.ts'
+
+const PERSONAL_DATA_ID = confirmationIdForPayload(profileAccessPayload())
 
 function apply(state: AppState, name: string, input: Record<string, unknown> = {}) {
   const run = runTool(state, name, input)
@@ -23,6 +26,13 @@ function withFocus(focus = 'finish the draft'): AppState {
   })
 }
 
+function withBeliefs(): AppState {
+  return appReducer(withFocus(), {
+    type: 'SET_BELIEFS',
+    beliefs: { western: { sun: 'leo' } },
+  })
+}
+
 describe('WebMCP argument, consent, and fallback errors', () => {
   it('rejects an unknown tool name without mutating session text', () => {
     const state = withFocus('secret worry')
@@ -32,21 +42,25 @@ describe('WebMCP argument, consent, and fallback errors', () => {
     expect(nextState).toEqual(state)
   })
 
-  it('rejects a bad horizon before generating', () => {
-    const state = withFocus()
-    const { result, state: nextState } = apply(state, 'generate_forecast', {
-      horizon: 'forever',
+  it('rejects a bad packet op without mutating intake', () => {
+    const state = withBeliefs()
+    const { result, state: nextState } = apply(state, 'submit_reading_packet', {
+      op: 'adopt',
     })
     expect(result).toMatchObject({ ok: false, code: 'invalid_input' })
-    expect(nextState).toEqual(state)
+    expect(nextState.intake.status).toBe('idle')
   })
 
-  it('returns no_forecast and no_plan when memory is empty', () => {
-    expect(apply(INITIAL_STATE, 'inspect_evidence').result).toMatchObject({
+  it('returns no_brief and no_plan when the page is empty', () => {
+    expect(apply(INITIAL_STATE, 'get_research_brief').result).toMatchObject({
       ok: false,
-      code: 'no_forecast',
+      code: 'focus_required',
     })
-    expect(apply(INITIAL_STATE, 'draft_choice_plan', { action: 'add_step' }).result)
+    expect(apply(withFocus(), 'get_research_brief').result).toMatchObject({
+      ok: false,
+      code: 'no_brief',
+    })
+    expect(apply(INITIAL_STATE, 'propose_choice_plan', { titles: ['one'] }).result)
       .toMatchObject({ ok: false, code: 'no_plan' })
     expect(apply(INITIAL_STATE, 'request_plan_save').result).toMatchObject({
       ok: false,
@@ -69,17 +83,20 @@ describe('WebMCP argument, consent, and fallback errors', () => {
   it('returns confirmation_busy when a second gated tool arrives', () => {
     const first = apply(INITIAL_STATE, 'request_profile_access')
     expect(first.result).toMatchObject({ ok: false, code: 'needs_confirmation' })
-    const second = apply(first.state, 'request_external_share')
-    expect(second.result).toMatchObject({ ok: false, code: 'confirmation_busy' })
+    const second = apply(first.state, 'propose_profile_update', { tone: 'bold' })
+    expect(second.result).toMatchObject({
+      ok: false,
+      code: 'confirmation_busy',
+    })
   })
 
   it('returns confirmation_busy while an approved slot is still unconsumed', () => {
     const first = apply(INITIAL_STATE, 'request_profile_access')
     const approved = appReducer(first.state, {
       type: 'APPROVE_CONFIRMATION',
-      id: confirmationIdFor('personal_data_access'),
+      id: PERSONAL_DATA_ID,
     })
-    const second = apply(approved, 'request_external_share')
+    const second = apply(approved, 'propose_profile_update', { tone: 'bold' })
     expect(second.result).toMatchObject({
       ok: false,
       code: 'confirmation_busy',
@@ -96,18 +113,55 @@ describe('WebMCP argument, consent, and fallback errors', () => {
     const gated = apply(focused, 'request_profile_access')
     const deniedState = appReducer(gated.state, {
       type: 'DENY_CONFIRMATION',
-      id: confirmationIdFor('personal_data_access'),
+      id: PERSONAL_DATA_ID,
     })
     const replay = apply(deniedState, 'request_profile_access', {
-      confirmationId: confirmationIdFor('personal_data_access'),
+      confirmationId: PERSONAL_DATA_ID,
     })
     expect(replay.result).toMatchObject({ ok: false, code: 'denied' })
     expect(JSON.stringify(replay.result)).not.toContain('keep this private')
   })
 
-  it('rejects a non-string evidence id', () => {
-    const generated = appReducer(withFocus(), { type: 'GENERATE_FORECAST' })
-    const { result } = apply(generated, 'inspect_evidence', { evidenceId: 12 })
-    expect(result).toMatchObject({ ok: false, code: 'invalid_input' })
+  it('rejects a digest mismatch and a stale replay', () => {
+    const first = apply(INITIAL_STATE, 'request_profile_access')
+    expect(apply(first.state, 'request_profile_access', {
+      confirmationId: 'c1.not-this-digest',
+    }).result).toMatchObject({ ok: false, code: 'unknown_confirmation' })
+
+    const approved = appReducer(first.state, {
+      type: 'APPROVE_CONFIRMATION',
+      id: PERSONAL_DATA_ID,
+    })
+    const consumed = apply(approved, 'request_profile_access', {
+      confirmationId: PERSONAL_DATA_ID,
+    })
+    expect(consumed.result.ok).toBe(true)
+    const replay = apply(consumed.state, 'request_profile_access', {
+      confirmationId: PERSONAL_DATA_ID,
+    })
+    expect(replay.result).toMatchObject({ ok: false, code: 'unknown_confirmation' })
+  })
+
+  it('rejects an unsafe source URL through the shared parser', () => {
+    const started = apply(withBeliefs(), 'submit_reading_packet', { op: 'begin' })
+    const sourced = apply(started.state, 'submit_reading_packet', {
+      op: 'append_sources',
+      sources: [
+        {
+          ...SAMPLE_PACKET.sources[0],
+          url: 'http://example.com/insecure',
+        },
+      ],
+    })
+    const content = apply(sourced.state, 'submit_reading_packet', {
+      op: 'append_content',
+      content: SAMPLE_PACKET.sections,
+    })
+    const finalized = apply(content.state, 'submit_reading_packet', {
+      op: 'finalize',
+    })
+    expect(finalized.result).toMatchObject({ ok: false, code: 'invalid_input' })
+    expect(finalized.state.desk.staged).toBeNull()
+    expect(finalized.state.readingsByHorizon.daily).toBeNull()
   })
 })

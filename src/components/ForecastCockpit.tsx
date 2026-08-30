@@ -1,16 +1,13 @@
 import { UncertaintyPanel } from './UncertaintyPanel.tsx'
-import type {
-  ForecastCockpit as ForecastCockpitModel,
-  HorizonId,
-  UncertaintyState,
-} from '../domain/types.ts'
+import type { StudioUncertainty } from '../domain/studioView.ts'
+import type { ForecastCockpit as ForecastCockpitModel, HorizonId } from '../domain/types.ts'
 
 export function ForecastCockpit({
   cockpit,
   uncertainty,
 }: {
   cockpit: ForecastCockpitModel
-  uncertainty: UncertaintyState
+  uncertainty: StudioUncertainty
 }) {
   return (
     <article className="forecast-cockpit" aria-labelledby="forecast-cockpit-heading">

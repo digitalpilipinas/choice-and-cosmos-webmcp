@@ -1,12 +1,14 @@
+import { PACKET_BOUNDS, PLAN_BOUNDS } from '../domain/bounds.ts'
+
 export const TOOL_NAMES = [
   'get_session_status',
   'request_profile_access',
   'propose_profile_update',
-  'generate_forecast',
-  'inspect_evidence',
-  'draft_choice_plan',
+  'get_research_brief',
+  'submit_reading_packet',
+  'inspect_reading',
+  'propose_choice_plan',
   'request_plan_save',
-  'request_external_share',
 ] as const
 
 export type ToolName = (typeof TOOL_NAMES)[number]
@@ -25,7 +27,7 @@ export const TOOL_CATALOG: readonly ToolDescriptor[] = [
     name: 'get_session_status',
     title: 'Session status',
     description:
-      'Read phase, horizon, whether a focus or forecast exists, local-save status, agent availability, and any pending confirmation. Never returns profile text, notes, or plan wording.',
+      'Read phase, horizon, whether a focus, plan, staged packet, or adopted reading exists, local-save status, agent availability, and any pending confirmation. Never returns profile text, notes, reflections, or a competing report.',
     readOnlyHint: true,
     untrustedContentHint: false,
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
@@ -34,13 +36,29 @@ export const TOOL_CATALOG: readonly ToolDescriptor[] = [
     name: 'request_profile_access',
     title: 'Request profile access',
     description:
-      'Ask the person to confirm before returning display name, focus intention, and tone. Call once to open the confirmation, then again with confirmationId after they approve.',
+      'Ask the person to confirm an exact field allowlist before returning those self-supplied values. Default allowlist is display name, focus intention, and tone. Belief modules return only when listed and already present. Call once to open the confirmation, then again with confirmationId after they approve.',
     readOnlyHint: true,
     untrustedContentHint: true,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
+        fields: {
+          type: 'array',
+          items: {
+            type: 'string',
+            enum: [
+              'displayName',
+              'focusIntention',
+              'tone',
+              'beliefs.western',
+              'beliefs.numerology',
+              'beliefs.chinese',
+              'beliefs.bazi',
+              'beliefs.humanDesign',
+            ],
+          },
+        },
         confirmationId: { type: 'string' },
       },
     },
@@ -49,7 +67,7 @@ export const TOOL_CATALOG: readonly ToolDescriptor[] = [
     name: 'propose_profile_update',
     title: 'Propose a profile update',
     description:
-      'Propose a change to display name, focus intention, or tone. The change is applied only after the person approves the exact diff. Never collects birth date, time, or location.',
+      'Propose a change to display name, focus, tone, or self-supplied belief modules. The change is applied only after the person approves the exact diff. Never collects birth date, time, location, accounts, or inferred values.',
     readOnlyHint: false,
     untrustedContentHint: true,
     inputSchema: {
@@ -59,64 +77,118 @@ export const TOOL_CATALOG: readonly ToolDescriptor[] = [
         displayName: { type: 'string' },
         focusIntention: { type: 'string' },
         tone: { type: 'string', enum: ['grounded', 'curious', 'bold'] },
+        beliefs: { type: 'object' },
         confirmationId: { type: 'string' },
       },
     },
   },
   {
-    name: 'generate_forecast',
-    title: 'Generate a fixture forecast',
+    name: 'get_research_brief',
+    title: 'Get research brief',
     description:
-      'Generate or regenerate the fixture forecast for the current or named horizon. Regeneration resets fixture steps to proposed and keeps custom steps. Requires a focus intention already in the session.',
-    readOnlyHint: false,
-    untrustedContentHint: false,
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        horizon: { type: 'string', enum: ['daily', 'weekly', 'yearly'] },
-      },
-    },
-  },
-  {
-    name: 'inspect_evidence',
-    title: 'Inspect evidence',
-    description:
-      'Read fixture evidence, coverage, and uncertainty for the current horizon. Optional evidenceId or sectionId narrows the result. Does not return personal notes.',
+      'Return the exact research brief for the current horizon after a research-brief confirmation bound to that brief digest. The brief contains focus, tone, supplied belief fields, requested and skipped lenses, and transport caps. It is not a reading and not an exhaustive search.',
     readOnlyHint: true,
-    untrustedContentHint: false,
+    untrustedContentHint: true,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
       properties: {
-        evidenceId: { type: 'string' },
-        sectionId: { type: 'string' },
+        confirmationId: { type: 'string' },
       },
     },
   },
   {
-    name: 'draft_choice_plan',
-    title: 'Draft the choice plan',
+    name: 'submit_reading_packet',
+    title: 'Submit a reading packet',
     description:
-      'Accept, dismiss, annotate, add, or remove steps on the current choice plan. Removing works only for custom steps. Saving the plan is a separate confirmed tool.',
+      'Assemble an untrusted ReadingPacketV1 in memory using begin, append_sources, append_content, finalize, or cancel. Transport batches stay within existing source and section caps. Finalize stages a review. It does not adopt the packet.',
     readOnlyHint: false,
     untrustedContentHint: true,
     inputSchema: {
       type: 'object',
       additionalProperties: false,
-      required: ['action'],
+      required: ['op'],
       properties: {
-        action: {
+        op: {
           type: 'string',
-          enum: ['set_status', 'set_note', 'add_step', 'remove_step'],
+          enum: ['begin', 'append_sources', 'append_content', 'finalize', 'cancel'],
         },
-        stepId: { type: 'string' },
-        status: {
-          type: 'string',
-          enum: ['proposed', 'accepted', 'dismissed'],
+        horizon: { type: 'string', enum: ['daily', 'weekly', 'yearly'] },
+        sources: {
+          type: 'array',
+          maxItems: PACKET_BOUNDS.maxSources,
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', maxLength: PACKET_BOUNDS.source.id },
+              title: { type: 'string', maxLength: PACKET_BOUNDS.source.title },
+              snippet: { type: 'string', maxLength: PACKET_BOUNDS.source.snippet },
+              url: { type: 'string', maxLength: PACKET_BOUNDS.source.url },
+              domain: { type: 'string', maxLength: PACKET_BOUNDS.source.domain },
+              provenance: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', maxLength: PACKET_BOUNDS.source.query },
+                },
+              },
+            },
+          },
         },
-        title: { type: 'string' },
-        userNote: { type: 'string' },
+        content: {
+          type: 'array',
+          maxItems: PACKET_BOUNDS.maxSections,
+          items: {
+            type: 'object',
+            properties: {
+              title: { type: 'string', maxLength: PACKET_BOUNDS.section.title },
+              frameworkLabel: {
+                type: 'string',
+                maxLength: PACKET_BOUNDS.section.frameworkLabel,
+              },
+              reflection: {
+                type: 'string',
+                maxLength: PACKET_BOUNDS.section.reflection,
+              },
+              evidenceIds: {
+                type: 'array',
+                maxItems: PACKET_BOUNDS.maxEvidenceIdsPerSection,
+                items: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'inspect_reading',
+    title: 'Inspect the current reading',
+    description:
+      'Read a concise navigation summary: coverage, supported and skipped lenses, evidence ids, and section titles. Does not return reflections, local notes, browser storage, or a competing full report.',
+    readOnlyHint: true,
+    untrustedContentHint: true,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {},
+    },
+  },
+  {
+    name: 'propose_choice_plan',
+    title: 'Propose choice steps',
+    description:
+      'Add custom steps in proposed status for the person to review. Cannot mark resonance, accept or dismiss steps, persist, export, erase, or approve.',
+    readOnlyHint: false,
+    untrustedContentHint: true,
+    inputSchema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        titles: {
+          type: 'array',
+          maxItems: PLAN_BOUNDS.maxProposedTitles,
+          items: { type: 'string', maxLength: PLAN_BOUNDS.maxTitleLength },
+        },
       },
     },
   },
@@ -131,25 +203,6 @@ export const TOOL_CATALOG: readonly ToolDescriptor[] = [
       type: 'object',
       additionalProperties: false,
       properties: {
-        confirmationId: { type: 'string' },
-      },
-    },
-  },
-  {
-    name: 'request_external_share',
-    title: 'Request external sharing',
-    description:
-      'Ask the person to confirm sharing selected session parts with a future Gemini research run. Approval is recorded only. This slice does not send data.',
-    readOnlyHint: false,
-    untrustedContentHint: false,
-    inputSchema: {
-      type: 'object',
-      additionalProperties: false,
-      properties: {
-        include: {
-          type: 'array',
-          items: { type: 'string', enum: ['profile', 'forecast', 'plan'] },
-        },
         confirmationId: { type: 'string' },
       },
     },

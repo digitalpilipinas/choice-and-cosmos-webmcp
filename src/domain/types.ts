@@ -1,3 +1,10 @@
+import type { CosmicProfile } from './cosmic.ts'
+import type { ModularBeliefs } from './profile.ts'
+import type { BriefDigest, PacketDigest } from './brand.ts'
+import type { PacketIntake } from '../research/coordinator.ts'
+import type { ReadingArtifact, ReadingDesk } from './trust.ts'
+export type { ReadingArtifact, ReadingDesk }
+
 export type HorizonId = 'daily' | 'weekly' | 'yearly'
 
 export type HorizonName = 'Signal' | 'Compass' | 'Constellation'
@@ -16,10 +23,18 @@ export type PhaseId =
   | 'choice'
   | 'continuity'
 
-export interface DerivedProfile {
+export interface ContextProfile {
   displayName: string
   focusIntention: string
   tone: 'grounded' | 'curious' | 'bold'
+}
+
+export interface DerivedProfile extends ContextProfile {
+  cosmic: CosmicProfile
+}
+
+export interface PersonProfile extends ContextProfile {
+  beliefs: ModularBeliefs
 }
 
 export type ReportSectionId =
@@ -34,6 +49,9 @@ export type ReportSectionId =
   | 'focusActionPlan'
   | 'symbolicCodes'
   | 'higherSelfLetter'
+
+export type ResonanceMark = 'resonates' | 'not-for-me' | 'unsure'
+export type ResonanceMap = Partial<Record<ReportSectionId, ResonanceMark>>
 
 export interface ReportSection {
   id: ReportSectionId
@@ -130,8 +148,30 @@ export interface StoredSessionV1 {
   savedAt: string
   phase: PhaseId
   horizon: HorizonId
+  profile: ContextProfile
+  forecastsByHorizon: Record<HorizonId, ForecastFixture | null>
+  plansByHorizon: Record<HorizonId, ChoicePlanDraft | null>
+}
+
+export interface StoredSessionV2 {
+  schemaVersion: 2
+  savedAt: string
+  phase: PhaseId
+  horizon: HorizonId
   profile: DerivedProfile
   forecastsByHorizon: Record<HorizonId, ForecastFixture | null>
+  plansByHorizon: Record<HorizonId, ChoicePlanDraft | null>
+}
+
+export interface StoredSessionV3 {
+  schemaVersion: 3
+  savedAt: string
+  phase: PhaseId
+  horizon: HorizonId
+  profile: PersonProfile
+  forecastsByHorizon: Record<HorizonId, ForecastFixture | null>
+  readingsByHorizon: Record<HorizonId, ReadingArtifact | null>
+  resonanceByHorizon: Record<HorizonId, ResonanceMap | null>
   plansByHorizon: Record<HorizonId, ChoicePlanDraft | null>
 }
 
@@ -142,23 +182,64 @@ export type AgentAvailability =
 
 export type ConfirmationKind =
   | 'personal_data_access'
+  | 'research_brief'
   | 'profile_update'
   | 'external_share'
   | 'plan_save'
+  | 'adopt_reading'
 
-export type ProfileField = keyof DerivedProfile
+export type ProfileField = keyof ContextProfile
+
+export const PROFILE_ACCESS_FIELDS = [
+  'displayName',
+  'focusIntention',
+  'tone',
+  'beliefs.western',
+  'beliefs.numerology',
+  'beliefs.chinese',
+  'beliefs.bazi',
+  'beliefs.humanDesign',
+] as const
+
+export type ProfileAccessField = (typeof PROFILE_ACCESS_FIELDS)[number]
+
+export const DEFAULT_PROFILE_ACCESS_FIELDS: readonly ProfileAccessField[] = [
+  'displayName',
+  'focusIntention',
+  'tone',
+]
+
+export type ProfileUpdatePatch = Partial<ContextProfile> & {
+  beliefs?: ModularBeliefs
+}
 
 export type ShareInclude = 'profile' | 'forecast' | 'plan'
 
 export type ConfirmationPayload =
-  | { kind: 'personal_data_access' }
-  | { kind: 'profile_update'; proposed: Partial<DerivedProfile> }
+  | { kind: 'personal_data_access'; fields?: ProfileAccessField[] }
+  | {
+      kind: 'research_brief'
+      horizon: HorizonId
+      briefDigest: BriefDigest
+      fields: ProfileAccessField[]
+      snapshot: {
+        focus: string
+        tone: ContextProfile['tone']
+        requestedLenses: ReportSectionId[]
+        skippedLenses: ReportSectionId[]
+      }
+    }
+  | { kind: 'profile_update'; proposed: ProfileUpdatePatch }
   | {
       kind: 'external_share'
-      destination: 'gemini-research'
       include: ShareInclude[]
     }
   | { kind: 'plan_save'; horizon: HorizonId }
+  | {
+      kind: 'adopt_reading'
+      packetDigest: PacketDigest
+      horizon: HorizonId
+    }
 
 export type ConfirmationState =
   | { status: 'idle' }
@@ -182,20 +263,23 @@ export type ExternalShareState =
   | { kind: 'none' }
   | {
       kind: 'approved_not_sent'
-      destination: 'gemini-research'
       include: ShareInclude[]
       reason: string
     }
-  | { kind: 'denied'; destination: 'gemini-research' }
+  | { kind: 'denied' }
 
 export interface AppState {
   phase: PhaseId
   horizon: HorizonId
-  profile: DerivedProfile
+  profile: PersonProfile
   forecastsByHorizon: Record<HorizonId, ForecastFixture | null>
+  readingsByHorizon: Record<HorizonId, ReadingArtifact | null>
+  resonanceByHorizon: Record<HorizonId, ResonanceMap | null>
   plansByHorizon: Record<HorizonId, ChoicePlanDraft | null>
   persistence: PersistenceStatus
   agentAvailability: AgentAvailability
   confirmation: ConfirmationState
+  desk: ReadingDesk
+  intake: PacketIntake
   externalShare: ExternalShareState
 }

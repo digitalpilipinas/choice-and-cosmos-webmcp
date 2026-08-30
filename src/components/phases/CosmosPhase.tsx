@@ -1,94 +1,109 @@
 import { useState, type ReactNode, type ToggleEvent } from 'react'
-import {
-  CLAIM_KIND_LABEL,
-  LIVE_RESEARCH_NOTICE,
-  cardsForSection,
-  frameworkKind,
-  frameworkKindLabel,
-  horizonChart,
-} from '../../domain/synthesis.ts'
-import {
-  currentForecast,
-  forecastCockpit,
-  uncertaintyFor,
-} from '../../domain/selectors.ts'
-import { HORIZON_BY_ID } from '../../fixtures/horizons.ts'
+import { ChartFigure } from '../ChartFigure.tsx'
 import { EvidenceCard } from '../EvidenceCard.tsx'
 import { ForecastCockpit } from '../ForecastCockpit.tsx'
 import { FreeWillBanner } from '../FreeWillBanner.tsx'
-import { HorizonChart } from '../HorizonChart.tsx'
-import type { PhaseProps } from './phaseProps.ts'
+import { PacketImport } from '../research/PacketImport.tsx'
+import { ResearchBriefPanel } from '../research/ResearchBriefPanel.tsx'
+import type { SkippedLensCopy, StudioSection } from '../../domain/studioView.ts'
+import type { StudioPhaseProps } from './phaseProps.ts'
 
-export function CosmosPhase({ state }: PhaseProps) {
-  const forecast = currentForecast(state)
-  const cockpit = forecastCockpit(state.horizon, state.profile, forecast)
-  const uncertainty = uncertaintyFor(forecast)
-
-  if (forecast === null) {
+export function CosmosPhase({ studio, dispatch }: StudioPhaseProps) {
+  if (studio.reading.status === 'empty') {
     return (
       <section className="phase" aria-labelledby="cosmos-heading">
         <h2 id="cosmos-heading">Cosmos</h2>
-        <p>No fixture report is in memory yet. Go back and open one from Context.</p>
+        <p>{studio.reading.emptyBody}</p>
         <FreeWillBanner />
-        <p className="research-notice">{LIVE_RESEARCH_NOTICE}</p>
-        <ForecastCockpit cockpit={cockpit} uncertainty={uncertainty} />
+        <p className="research-notice">{studio.notices.research}</p>
+        <ForecastCockpit cockpit={studio.cockpit} uncertainty={studio.uncertainty} />
+        <ResearchBriefPanel brief={studio.brief} />
+        <PacketImport {...studio.intake} dispatch={dispatch} fieldId="packet-json-cosmos" />
       </section>
     )
   }
 
-  const horizon = HORIZON_BY_ID[forecast.horizon]
-  const chart = horizonChart(forecast)
-
+  const reading = studio.reading
   return (
     <section className="phase cosmos-phase" aria-labelledby="cosmos-heading">
       <header className="phase-header">
         <h2 id="cosmos-heading">Cosmos</h2>
-        <p>
-          An interpretive reading for {horizon.label} ({horizon.windowDescription}),
-          held against &quot;{state.profile.focusIntention.trim()}&quot;. Every block
-          below is a lens, not a result.
-        </p>
+        <p>{reading.lede}</p>
+        {reading.legacyBadge !== null ? (
+          <p className="legacy-badge">{reading.legacyBadge}</p>
+        ) : null}
       </header>
       <FreeWillBanner />
-      <p className="research-notice">{LIVE_RESEARCH_NOTICE}</p>
-      <ForecastCockpit cockpit={cockpit} uncertainty={uncertainty} />
-      <HorizonChart model={chart} />
+      <p className="research-notice">{studio.notices.research}</p>
+      <ResearchBriefPanel brief={studio.brief} />
+      <PacketImport {...studio.intake} dispatch={dispatch} fieldId="packet-json-cosmos" />
+      <ForecastCockpit cockpit={studio.cockpit} uncertainty={studio.uncertainty} />
+      {reading.charts.map((model) => (
+        <ChartFigure key={model.id} model={model} />
+      ))}
+      <SkippedLenses items={reading.skippedLenses} />
       <div className="section-list">
-        {forecast.sections.map((section, index) => {
-          const cards = cardsForSection(forecast, section)
-          const kind = frameworkKind(section.id)
-          return (
-            <ReportDetails key={section.id} defaultOpen={index === 0}>
-              <summary>
-                <span className="report-title">{section.title}</span>
-                <span className="report-lens">{section.frameworkLabel}</span>
-                <span className="framework-badge">{frameworkKindLabel(kind)}</span>
-              </summary>
-              <p className="claim-kind">{CLAIM_KIND_LABEL.reflective}</p>
-              <p>{section.reflection}</p>
-              <p className="claim-kind">{CLAIM_KIND_LABEL.grounded}</p>
-              {cards.length === 0 ? (
-                <p className="evidence-ids-empty">No evidence IDs cited</p>
-              ) : (
-                <ul
-                  className="source-cards"
-                  aria-label={`Evidence IDs for ${section.title}`}
-                >
-                  {cards.map((card) => (
-                    <li key={card.id}>
-                      <EvidenceCard
-                        card={card}
-                        headingId={`evidence-${section.id}-${card.id}`}
-                      />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </ReportDetails>
-          )
-        })}
+        {reading.sections.map((section, index) => (
+          <ReportBlock key={section.id} section={section} defaultOpen={index === 0} />
+        ))}
       </div>
     </section>
+  )
+}
+
+function ReportBlock({
+  section,
+  defaultOpen,
+}: {
+  section: StudioSection
+  defaultOpen: boolean
+}) {
+  return (
+    <ReportDetails defaultOpen={defaultOpen}>
+      <summary>
+        <span className="report-title">{section.title}</span>
+        <span className="report-lens">{section.frameworkLabel}</span>
+        <span className="framework-badge">{section.frameworkKindLabel}</span>
+      </summary>
+      <p className="claim-kind">{section.reflectiveHeading}</p>
+      <p className="reading-prose">{section.reflection}</p>
+      <p className="claim-kind">{section.groundedHeading}</p>
+      {section.evidence.length === 0 ? (
+        <p className="evidence-ids-empty">No evidence IDs cited</p>
+      ) : (
+        <ul
+          className="source-cards"
+          aria-label={`Evidence IDs for ${section.title}`}
+        >
+          {section.evidence.map((card) => (
+            <li key={card.id}>
+              <EvidenceCard
+                card={card}
+                headingId={`evidence-${section.id}-${card.id}`}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+    </ReportDetails>
+  )
+}
+
+export function SkippedLenses({ items }: { items: SkippedLensCopy[] }) {
+  if (items.length === 0) {
+    return null
+  }
+  return (
+    <article className="skipped-lenses" aria-labelledby="skipped-lenses-heading">
+      <h3 id="skipped-lenses-heading">Skipped lenses</h3>
+      <ul>
+        {items.map((item) => (
+          <li key={item.lens}>
+            {item.lens}: {item.reason}
+          </li>
+        ))}
+      </ul>
+    </article>
   )
 }
 

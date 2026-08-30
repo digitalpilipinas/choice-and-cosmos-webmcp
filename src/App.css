@@ -67,12 +67,16 @@
   font-weight: 650;
   color: var(--heading);
   font-size: 0.82rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .phase-stepper .step-description {
   color: var(--text-muted);
   font-size: 0.72rem;
   line-height: 1.3;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .phase-stepper li.is-current {
@@ -91,6 +95,8 @@
   border-radius: var(--radius);
   padding: 1.25rem 1.15rem 1.4rem;
   box-shadow: var(--shadow);
+  min-width: 0;
+  max-width: 100%;
 }
 
 .phase-header {
@@ -383,10 +389,21 @@
   margin-bottom: 1rem;
 }
 
+.research-panel {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .research-model-text {
   margin-top: 0.85rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--line);
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .research-model-text h4 {
@@ -811,15 +828,71 @@ button.restart {
   border-radius: 10px;
 }
 
+.calendar-export {
+  margin: 1.25rem 0;
+  display: grid;
+  gap: 0.9rem;
+}
+
+.calendar-export fieldset {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem 1rem;
+  margin: 0;
+}
+
+.calendar-export-fields {
+  display: grid;
+  gap: 0.7rem;
+}
+
+.calendar-export-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-weight: 650;
+  color: var(--heading);
+}
+
+.calendar-export-fields input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg-card);
+  color: var(--text);
+}
+
+.calendar-export table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.calendar-export th,
+.calendar-export td {
+  text-align: left;
+  padding: 0.45rem 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+@media (min-width: 720px) {
+  .calendar-export-fields {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 720px) {
+  .app-shell .studio-grid .phase-stepper ol,
   .phase-stepper ol {
     grid-template-columns: 1fr;
   }
 
+  .app-shell .studio-grid .phase-stepper li,
   .phase-stepper li {
     align-items: center;
   }
 
+  .app-shell .studio-grid .phase-stepper .step-copy,
   .phase-stepper .step-copy {
     flex-direction: row;
     flex-wrap: wrap;

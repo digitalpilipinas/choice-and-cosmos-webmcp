@@ -3,31 +3,21 @@ import {
   useEffect,
   useRef,
   useState,
-  type ComponentType,
   type Dispatch,
 } from 'react'
 import { AgentBar } from './components/AgentBar.tsx'
 import { PersistenceBar } from './components/PersistenceBar.tsx'
-import { PhaseStepper } from './components/PhaseStepper.tsx'
-import { ChoicePhase } from './components/phases/ChoicePhase.tsx'
-import { ContextPhase } from './components/phases/ContextPhase.tsx'
-import { ContinuityPhase } from './components/phases/ContinuityPhase.tsx'
-import { ContrastPhase } from './components/phases/ContrastPhase.tsx'
-import { CosmosPhase } from './components/phases/CosmosPhase.tsx'
-import type { PhaseProps } from './components/phases/phaseProps.ts'
+import { StudioShell } from './components/StudioShell.tsx'
 import {
   INITIAL_STATE,
   appReducer,
   blocksDelayedHydrate,
-  canAdvance,
   type AppAction,
 } from './domain/loop.ts'
 import {
   currentPlan,
-  hasPersistenceConsent,
   persistSessionOffered,
 } from './domain/selectors.ts'
-import type { PhaseId } from './domain/types.ts'
 import {
   actionFromBootstrap,
   bootstrapPersistence,
@@ -44,21 +34,6 @@ import {
 import { registerCatalog } from './webmcp/host.ts'
 import './App.css'
 
-const PHASE_VIEWS: Record<PhaseId, ComponentType<PhaseProps>> = {
-  context: ContextPhase,
-  cosmos: CosmosPhase,
-  contrast: ContrastPhase,
-  choice: ChoicePhase,
-  continuity: ContinuityPhase,
-}
-
-const CONTINUE_LABEL: Record<Exclude<PhaseId, 'continuity'>, string> = {
-  context: 'Open the cosmos',
-  cosmos: 'See the contrast',
-  contrast: 'Choose your steps',
-  choice: 'Review this session',
-}
-
 function dispatchSaveResult(
   dispatch: Dispatch<AppAction>,
   result: { savedAt: string } | { error: string },
@@ -74,12 +49,6 @@ function App() {
   const stateRef = useRef(INITIAL_STATE)
   const sessionEditedRef = useRef(false)
   const [state, setState] = useState(INITIAL_STATE)
-  const PhaseView = PHASE_VIEWS[state.phase]
-  const forwardEnabled = canAdvance(state)
-  const persistenceConsent = hasPersistenceConsent(state.persistence)
-  const eraseFailed =
-    state.persistence.kind === 'error' &&
-    state.persistence.operation === 'erase'
 
   const dispatch = useCallback((action: AppAction) => {
     if (blocksDelayedHydrate(action)) {
@@ -155,48 +124,17 @@ function App() {
     }
   }, [dispatch])
 
-  useEffect(() => {
-    if (!persistenceConsent || eraseFailed) {
-      return
-    }
-
-    let cancelled = false
-    const timeoutId = window.setTimeout(() => {
-      dispatch({ type: 'PERSISTENCE_SAVE_START' })
-      void saveSession(sessionFieldsOf(stateRef.current)).then((result) => {
-        if (cancelled) {
-          return
-        }
-        dispatchSaveResult(dispatch, result)
-      })
-    }, 400)
-
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeoutId)
-    }
-  }, [
-    dispatch,
-    persistenceConsent,
-    eraseFailed,
-    state.phase,
-    state.horizon,
-    state.profile,
-    state.forecastsByHorizon,
-    state.plansByHorizon,
-  ])
-
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
         Skip to the loop
       </a>
       <header className="app-header">
-        <p className="eyebrow">Choice &amp; Cosmos · fixture preview</p>
+        <p className="eyebrow">Choice &amp; Cosmos</p>
         <h1>A reflective loop, not a verdict</h1>
         <p className="lede">
-          Context, Cosmos, Contrast, Choice, Continuity. All data in this
-          preview is local and made-up. Nothing ever leaves this device. Saving
+          Context, Cosmos, Contrast, Choice, Continuity. An adopted packet is
+          the canonical reading. Fixture output stays labeled legacy. Saving
           to this browser is optional and reversible. Agent tools, when this
           browser offers them, still wait for your confirmation before reading
           personal details, sharing, or saving a plan.
@@ -205,6 +143,8 @@ function App() {
 
       <PersistenceBar
         persistence={state.persistence}
+        session={sessionFieldsOf(state)}
+        dispatch={dispatch}
         onGrant={() => {
           dispatch({ type: 'GRANT_PERSISTENCE_CONSENT' })
           void grantConsentAndSave(sessionFieldsOf(stateRef.current)).then(
@@ -270,39 +210,7 @@ function App() {
         onDeny={(id) => dispatch({ type: 'DENY_CONFIRMATION', id })}
       />
 
-      <PhaseStepper phase={state.phase} />
-      <main id="main-content">
-        <PhaseView state={state} dispatch={dispatch} />
-      </main>
-
-      <nav className="wizard-nav" aria-label="Phase controls">
-        <button
-          type="button"
-          onClick={() => dispatch({ type: 'BACK' })}
-          disabled={state.phase === 'context'}
-        >
-          Back
-        </button>
-        {state.phase === 'continuity' ? (
-          <p className="nav-hint">
-            Use Start a new reflection above if you want another pass.
-          </p>
-        ) : (
-          <button
-            type="button"
-            className="primary"
-            onClick={() => dispatch({ type: 'ADVANCE' })}
-            disabled={!forwardEnabled}
-          >
-            {CONTINUE_LABEL[state.phase]}
-          </button>
-        )}
-      </nav>
-      {state.phase === 'context' && !forwardEnabled ? (
-        <p className="nav-hint" id="advance-hint">
-          Write a focus intention to continue. The horizon is already chosen.
-        </p>
-      ) : null}
+      <StudioShell state={state} dispatch={dispatch} />
     </div>
   )
 }

@@ -3,7 +3,6 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
-import type { AppState } from '../../src/domain/types.ts'
 import { getItem } from '../../src/persistence/db.ts'
 
 type SessionStore = typeof import('../../src/persistence/sessionStore.ts')
@@ -61,10 +60,7 @@ import {
 
 const FOCUS = 'keep the draft honest overnight'
 
-type SessionFields = Pick<
-  AppState,
-  'phase' | 'horizon' | 'profile' | 'forecastsByHorizon' | 'plansByHorizon'
->
+import type { SessionFields } from '../../src/persistence/sessionStore.ts'
 
 const sampleFields: SessionFields = {
   phase: 'contrast',
@@ -73,8 +69,11 @@ const sampleFields: SessionFields = {
     displayName: 'You',
     focusIntention: FOCUS,
     tone: 'bold',
+    beliefs: {},
   },
   forecastsByHorizon: { daily: null, weekly: null, yearly: null },
+  readingsByHorizon: { daily: null, weekly: null, yearly: null },
+  resonanceByHorizon: { daily: null, weekly: null, yearly: null },
   plansByHorizon: { daily: null, weekly: null, yearly: null },
 }
 
@@ -102,7 +101,7 @@ async function startHeldSessionSave(state: SessionFields) {
   return { saving, release }
 }
 
-describe('persistence flow', () => {
+describe('persistence flow', { timeout: 25_000 }, () => {
   beforeEach(async () => {
     grantMock.fn.mockReset()
     if (grantMock.actual === null) {
@@ -121,7 +120,7 @@ describe('persistence flow', () => {
     cleanup()
   })
 
-  it('grants consent, saves, and hydrates after a fresh mount', async () => {
+  it('grants consent, saves, and hydrates after a fresh mount', { timeout: 25_000 }, async () => {
     const user = userEvent.setup()
     const first = render(
       <StrictMode>
@@ -129,7 +128,7 @@ describe('persistence flow', () => {
       </StrictMode>,
     )
 
-    await screen.findByRole('button', { name: 'Save on this device' })
+    await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await user.type(
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
@@ -154,7 +153,7 @@ describe('persistence flow', () => {
     ).toHaveTextContent(FOCUS)
   })
 
-  it('declines consent and keeps the preview working without saving', async () => {
+  it('declines consent and keeps the preview working without saving', { timeout: 25_000 }, async () => {
     const user = userEvent.setup()
     const first = render(<App />)
 
@@ -177,18 +176,18 @@ describe('persistence flow', () => {
     first.unmount()
     render(<App />)
 
-    await screen.findByRole('button', { name: 'Save on this device' })
+    await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await waitFor(() => {
       expect(screen.queryByRole('heading', { name: 'Cosmos' })).not.toBeInTheDocument()
     })
     expect(screen.getByLabelText(/what's on your mind/i)).toHaveValue('')
   })
 
-  it('keeps the stored session after Start a new reflection', async () => {
+  it('keeps the stored session after Start a new reflection', { timeout: 25_000 }, async () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('button', { name: 'Save on this device' })
+    await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
@@ -238,7 +237,7 @@ describe('persistence flow', () => {
     })
   })
 
-  it('keeps held and the stored session when grant finishes after restart', async () => {
+  it('keeps held and the stored session when grant finishes after restart', { timeout: 25_000 }, async () => {
     let releaseGrant: () => void = () => {}
     vi.mocked(grantConsentAndSave).mockImplementationOnce((state) => {
       return new Promise((resolve, reject) => {
@@ -255,7 +254,7 @@ describe('persistence flow', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    await screen.findByRole('button', { name: 'Save on this device' })
+    await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })

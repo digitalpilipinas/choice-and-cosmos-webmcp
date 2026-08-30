@@ -1,0 +1,32 @@
+.print-sheet {
+  display: none;
+}
+
+@media print {
+  .skip-link,
+  .app-header,
+  .persistence-bar,
+  .agent-bar,
+  .phase-stepper,
+  .wizard-nav,
+  .studio-evidence,
+  .nav-hint,
+  .continuity-phase > :not(.print-sheet),
+  .calendar-export {
+    display: none !important;
+  }
+
+  .print-sheet {
+    display: block;
+  }
+
+  .print-sheet section {
+    break-inside: avoid;
+  }
+
+  .print-sheet a[href]::after {
+    content: ' (' attr(href) ')';
+    font-size: 0.85em;
+    word-break: break-all;
+  }
+}

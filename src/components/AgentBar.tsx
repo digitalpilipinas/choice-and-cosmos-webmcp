@@ -4,14 +4,14 @@ import type {
   AgentAvailability,
   ChoicePlanDraft,
   ConfirmationState,
-  DerivedProfile,
+  PersonProfile,
   PersistenceStatus,
 } from '../domain/types.ts'
 
 interface AgentBarProps {
   availability: AgentAvailability
   confirmation: ConfirmationState
-  profile: DerivedProfile
+  profile: PersonProfile
   plan: ChoicePlanDraft | null
   persistence: PersistenceStatus
   onApprove: (id: string, persistSession: boolean) => void
@@ -58,8 +58,9 @@ function AvailabilityBody({ availability }: { availability: AgentAvailability })
     case 'ready':
       return (
         <p role="status">
-          Agent tools are available in this browser. Personal details, external
-          sharing, and plan saving still need your confirmation on this page.
+          Agent tools are available in this browser. Profile access, research
+          briefs, packet adoption, and plan saving still need your confirmation
+          on this page. An agent cannot approve itself.
         </p>
       )
     default: {
@@ -78,7 +79,7 @@ function ConfirmationBody({
   onDeny,
 }: {
   confirmation: ConfirmationState
-  profile: DerivedProfile
+  profile: PersonProfile
   plan: ChoicePlanDraft | null
   persistence: PersistenceStatus
   onApprove: (id: string, persistSession: boolean) => void
@@ -110,7 +111,7 @@ function PendingConfirm({
   onDeny,
 }: {
   confirmation: Extract<ConfirmationState, { status: 'pending' }>
-  profile: DerivedProfile
+  profile: PersonProfile
   plan: ChoicePlanDraft | null
   persistence: PersistenceStatus
   onApprove: (id: string, persistSession: boolean) => void
@@ -278,7 +279,7 @@ function HumanPreview({
   plan,
 }: {
   confirmation: ConfirmationState
-  profile: DerivedProfile
+  profile: PersonProfile
   plan: ChoicePlanDraft | null
 }) {
   if (confirmation.status !== 'pending') {
@@ -304,21 +305,80 @@ function HumanPreview({
     )
   }
 
-  if (confirmation.kind === 'personal_data_access') {
+  if (
+    confirmation.kind === 'research_brief' &&
+    confirmation.payload.kind === 'research_brief'
+  ) {
+    const snapshot = confirmation.payload.snapshot
     return (
       <dl className="gate-preview">
         <div>
-          <dt>Display name</dt>
-          <dd>{profile.displayName}</dd>
+          <dt>Horizon</dt>
+          <dd>{confirmation.payload.horizon}</dd>
         </div>
         <div>
-          <dt>Focus intention</dt>
-          <dd>{profile.focusIntention.trim() || 'None written'}</dd>
+          <dt>Focus</dt>
+          <dd>{snapshot.focus.trim() || 'None written'}</dd>
         </div>
         <div>
           <dt>Tone</dt>
-          <dd>{profile.tone}</dd>
+          <dd>{snapshot.tone}</dd>
         </div>
+        <div>
+          <dt>Requested lenses</dt>
+          <dd>{snapshot.requestedLenses.join(', ') || 'None'}</dd>
+        </div>
+        <div>
+          <dt>Skipped lenses</dt>
+          <dd>{snapshot.skippedLenses.join(', ') || 'None'}</dd>
+        </div>
+        <div>
+          <dt>Brief digest</dt>
+          <dd>{confirmation.payload.briefDigest}</dd>
+        </div>
+      </dl>
+    )
+  }
+
+  if (confirmation.kind === 'personal_data_access') {
+    const fields =
+      confirmation.payload.kind === 'personal_data_access'
+        ? (confirmation.payload.fields ?? [
+            'displayName',
+            'focusIntention',
+            'tone',
+          ])
+        : ['displayName', 'focusIntention', 'tone']
+    return (
+      <dl className="gate-preview">
+        {fields.includes('displayName') ? (
+          <div>
+            <dt>Display name</dt>
+            <dd>{profile.displayName}</dd>
+          </div>
+        ) : null}
+        {fields.includes('focusIntention') ? (
+          <div>
+            <dt>Focus intention</dt>
+            <dd>{profile.focusIntention.trim() || 'None written'}</dd>
+          </div>
+        ) : null}
+        {fields.includes('tone') ? (
+          <div>
+            <dt>Tone</dt>
+            <dd>{profile.tone}</dd>
+          </div>
+        ) : null}
+        {fields.some((field) => field.startsWith('beliefs.')) ? (
+          <div>
+            <dt>Belief modules</dt>
+            <dd>
+              {fields
+                .filter((field) => field.startsWith('beliefs.'))
+                .join(', ')}
+            </dd>
+          </div>
+        ) : null}
       </dl>
     )
   }
@@ -332,6 +392,28 @@ function HumanPreview({
           </li>
         ))}
       </ul>
+    )
+  }
+
+  if (confirmation.kind === 'adopt_reading' && confirmation.payload.kind === 'adopt_reading') {
+    return (
+      <dl className="gate-preview">
+        <div>
+          <dt>Horizon</dt>
+          <dd>{confirmation.payload.horizon}</dd>
+        </div>
+        <div>
+          <dt>Packet digest</dt>
+          <dd>{confirmation.payload.packetDigest}</dd>
+        </div>
+        <div>
+          <dt>Adoption</dt>
+          <dd>
+            This packet stays a review until you approve. It is not an exhaustive
+            search.
+          </dd>
+        </div>
+      </dl>
     )
   }
 

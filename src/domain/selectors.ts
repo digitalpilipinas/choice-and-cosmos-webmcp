@@ -1,15 +1,19 @@
 import { HORIZON_BY_ID } from '../fixtures/horizons.ts'
+import { isPersonalized, type ReadingArtifact } from './trust.ts'
+import type { ModularBeliefs } from './profile.ts'
 import type {
   AppState,
   ChoicePlanDraft,
   CoverageSummary,
-  DerivedProfile,
+  ContextProfile,
+  PersonProfile,
   EvidenceItem,
   ForecastCockpit,
   ForecastFixture,
   ForecastSource,
   HorizonId,
   PersistenceStatus,
+  ProfileUpdatePatch,
   ReportSection,
   UncertaintyState,
 } from './types.ts'
@@ -21,6 +25,25 @@ export function currentForecast(state: AppState): ForecastFixture | null {
 export function currentPlan(state: AppState): ChoicePlanDraft | null {
   return state.plansByHorizon[state.horizon]
 }
+
+export function currentReading(state: AppState): ReadingArtifact | null {
+  return state.readingsByHorizon[state.horizon]
+}
+
+export function currentHorizonView(state: AppState): {
+  artifact: ReadingArtifact | null
+  fixture: ForecastFixture | null
+  personalized: boolean
+} {
+  const artifact = currentReading(state)
+  return {
+    artifact,
+    fixture: currentForecast(state),
+    personalized: isPersonalized(artifact),
+  }
+}
+
+export { isPersonalized }
 
 export type CoverageLevel = 'light' | 'typical' | 'broad'
 
@@ -60,7 +83,7 @@ const LIMITATIONS_BY_SOURCE: Record<ForecastSource, string> = {
 
 export function forecastCockpit(
   horizon: HorizonId,
-  profile: DerivedProfile,
+  profile: PersonProfile,
   forecast: ForecastFixture | null,
 ): ForecastCockpit {
   const definition = HORIZON_BY_ID[horizon]
@@ -111,15 +134,23 @@ export function sectionsCitingEvidence(
 }
 
 export type ProfileFieldDiff = {
-  field: 'displayName' | 'focusIntention' | 'tone'
+  field: string
   label: string
   from: string
   to: string
 }
 
+const BELIEF_LABELS: { [K in keyof Required<ModularBeliefs>]: string } = {
+  western: 'Western astrology',
+  numerology: 'Numerology',
+  chinese: 'Chinese astrology',
+  bazi: 'BaZi',
+  humanDesign: 'Human Design',
+}
+
 export function profileUpdateDiff(
-  current: DerivedProfile,
-  proposed: Partial<DerivedProfile>,
+  current: ContextProfile | PersonProfile,
+  proposed: ProfileUpdatePatch,
 ): ProfileFieldDiff[] {
   const diffs: ProfileFieldDiff[] = []
   if (proposed.displayName !== undefined) {
@@ -146,7 +177,30 @@ export function profileUpdateDiff(
       to: proposed.tone,
     })
   }
+  if (proposed.beliefs !== undefined) {
+    for (const key of Object.keys(BELIEF_LABELS) as (keyof ModularBeliefs)[]) {
+      const next = proposed.beliefs[key]
+      if (next === undefined) {
+        continue
+      }
+      diffs.push({
+        field: `beliefs.${key}`,
+        label: BELIEF_LABELS[key],
+        from: formatBelief(
+          'beliefs' in current ? current.beliefs[key] : undefined,
+        ),
+        to: formatBelief(next),
+      })
+    }
+  }
   return diffs
+}
+
+function formatBelief(value: unknown): string {
+  if (value === undefined) {
+    return 'Not set'
+  }
+  return JSON.stringify(value)
 }
 
 export function persistSessionOffered(

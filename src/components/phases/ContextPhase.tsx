@@ -1,9 +1,10 @@
 import { HORIZONS } from '../../fixtures/horizons.ts'
-import type { DerivedProfile } from '../../domain/types.ts'
-import type { PhaseProps } from './phaseProps.ts'
+import type { PersonProfile } from '../../domain/types.ts'
+import { CosmicFields } from './CosmicFields.tsx'
+import type { StudioPhaseProps } from './phaseProps.ts'
 
 const TONE_OPTIONS: Record<
-  DerivedProfile['tone'],
+  PersonProfile['tone'],
   { label: string; hint: string }
 > = {
   grounded: {
@@ -22,14 +23,15 @@ const TONE_OPTIONS: Record<
 
 const TONE_ORDER = ['grounded', 'curious', 'bold'] as const
 
-export function ContextPhase({ state, dispatch }: PhaseProps) {
+export function ContextPhase({ studio, dispatch }: StudioPhaseProps) {
   return (
     <section className="phase context-phase" aria-labelledby="context-heading">
       <header className="phase-header">
         <h2 id="context-heading">Context</h2>
         <p>
-          Set a horizon and a focus intention. This preview does not collect a
-          birth date, birth time, or birth location, and it does not need them.
+          Set a horizon, a focus intention, and any cosmic details you already
+          know. This preview does not collect a birth date, birth time, or birth
+          location, and it never infers optional signs or numbers.
         </p>
       </header>
 
@@ -39,14 +41,14 @@ export function ContextPhase({ state, dispatch }: PhaseProps) {
           <label
             key={horizon.id}
             className={
-              state.horizon === horizon.id ? 'choice-card is-selected' : 'choice-card'
+              studio.horizon === horizon.id ? 'choice-card is-selected' : 'choice-card'
             }
           >
             <input
               type="radio"
               name="horizon"
               value={horizon.id}
-              checked={state.horizon === horizon.id}
+              checked={studio.horizon === horizon.id}
               onChange={() =>
                 dispatch({ type: 'SET_HORIZON', horizon: horizon.id })
               }
@@ -65,7 +67,7 @@ export function ContextPhase({ state, dispatch }: PhaseProps) {
           id="focus-intention"
           name="focusIntention"
           rows={4}
-          value={state.profile.focusIntention}
+          value={studio.profile.focusIntention}
           onChange={(event) =>
             dispatch({
               type: 'SET_PROFILE_FIELD',
@@ -85,7 +87,7 @@ export function ContextPhase({ state, dispatch }: PhaseProps) {
             <label
               key={tone}
               className={
-                state.profile.tone === tone
+                studio.profile.tone === tone
                   ? 'choice-chip is-selected'
                   : 'choice-chip'
               }
@@ -94,7 +96,7 @@ export function ContextPhase({ state, dispatch }: PhaseProps) {
                 type="radio"
                 name="tone"
                 value={tone}
-                checked={state.profile.tone === tone}
+                checked={studio.profile.tone === tone}
                 onChange={() =>
                   dispatch({
                     type: 'SET_PROFILE_FIELD',
@@ -109,6 +111,8 @@ export function ContextPhase({ state, dispatch }: PhaseProps) {
           )
         })}
       </fieldset>
+
+      <CosmicFields beliefs={studio.profile.beliefs} dispatch={dispatch} />
     </section>
   )
 }

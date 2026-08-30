@@ -51,6 +51,29 @@ describe('parseResearchInput', () => {
     expect(parseResearchInput('focus').ok).toBe(false)
   })
 
+  it('rejects extra fields and forbidden personal fields', () => {
+    expect(
+      parseResearchInput({
+        horizon: 'daily',
+        query: 'focus',
+        displayName: 'Ada',
+      }).ok,
+    ).toBe(false)
+    expect(
+      parseResearchInput({
+        horizon: 'daily',
+        query: 'focus',
+        birthDate: '1990-01-01',
+      }).ok,
+    ).toBe(false)
+    const extra = parseResearchInput({
+      horizon: 'daily',
+      query: 'focus',
+      extra: true,
+    })
+    expect(extra.ok).toBe(false)
+  })
+
   it('rejects non-string manual URLs', () => {
     const parsed = parseResearchInput({
       horizon: 'weekly',
@@ -65,39 +88,33 @@ describe('parseResearchInput', () => {
 describe('horizon caps', () => {
   it('encodes the declared daily, weekly, and yearly bounds', () => {
     expect(HORIZON_CAPS.daily).toEqual({
-      maxSources: 4,
-      maxQueries: 3,
-      maxNovelDomains: 3,
-      timeoutMs: 12_000,
-    })
-    expect(HORIZON_CAPS.weekly).toEqual({
-      maxSources: 5,
+      maxSources: 12,
       maxQueries: 4,
       maxNovelDomains: 4,
-      timeoutMs: 15_000,
+      timeoutMs: 20_000,
+    })
+    expect(HORIZON_CAPS.weekly).toEqual({
+      maxSources: 24,
+      maxQueries: 6,
+      maxNovelDomains: 8,
+      timeoutMs: 30_000,
     })
     expect(HORIZON_CAPS.yearly).toEqual({
-      maxSources: 6,
-      maxQueries: 4,
-      maxNovelDomains: 5,
-      timeoutMs: 18_000,
+      maxSources: 36,
+      maxQueries: 8,
+      maxNovelDomains: 12,
+      timeoutMs: 45_000,
     })
   })
 
   it('stops at the daily source cap', () => {
     const limited = applyHorizonLimits(
-      [
-        source('https://a.example/1'),
-        source('https://a.example/2'),
-        source('https://a.example/3'),
-        source('https://a.example/4'),
-        source('https://a.example/5'),
-      ],
+      Array.from({ length: 13 }, (_, i) => source(`https://a.example/${i + 1}`)),
       'daily',
     )
-    expect(limited.sources).toHaveLength(4)
+    expect(limited.sources).toHaveLength(12)
     expect(limited.novelDomainsUsed).toBe(1)
-    expect(limited.stoppingReason).toMatch(/cap of 4 sources/)
+    expect(limited.stoppingReason).toMatch(/cap of 12 sources/)
     expect(limited.stoppingReason).toMatch(/not an exhaustive search/)
   })
 
@@ -108,6 +125,7 @@ describe('horizon caps', () => {
         source('https://b.example/one'),
         source('https://c.example/one'),
         source('https://d.example/one'),
+        source('https://e.example/one'),
         source('https://a.example/two'),
       ],
       'daily',
@@ -116,9 +134,10 @@ describe('horizon caps', () => {
       'https://a.example/one',
       'https://b.example/one',
       'https://c.example/one',
+      'https://d.example/one',
       'https://a.example/two',
     ])
-    expect(limited.novelDomainsUsed).toBe(3)
+    expect(limited.novelDomainsUsed).toBe(4)
   })
 
   it('skips a new domain once the daily novelty cap is reached', () => {
@@ -132,43 +151,47 @@ describe('horizon caps', () => {
       ],
       'daily',
     )
-    expect(limited.sources).toHaveLength(3)
-    expect(limited.novelDomainsUsed).toBe(3)
-    expect(limited.stoppingReason).toMatch(/cap of 3 distinct domains/)
+    expect(limited.sources).toHaveLength(4)
+    expect(limited.novelDomainsUsed).toBe(4)
+    expect(limited.stoppingReason).toMatch(/cap of 4 distinct domains/)
   })
 
   it('stops at the weekly source and domain caps', () => {
     const sourceCapped = applyHorizonLimits(
-      [1, 2, 3, 4, 5, 6].map((n) => source(`https://week.example/${n}`)),
+      Array.from({ length: 25 }, (_, i) => source(`https://week.example/${i + 1}`)),
       'weekly',
     )
-    expect(sourceCapped.sources).toHaveLength(5)
-    expect(sourceCapped.stoppingReason).toMatch(/cap of 5 sources/)
+    expect(sourceCapped.sources).toHaveLength(24)
+    expect(sourceCapped.stoppingReason).toMatch(/cap of 24 sources/)
 
     const domainCapped = applyHorizonLimits(
-      ['a', 'b', 'c', 'd', 'e'].map((host) => source(`https://${host}.example/one`)),
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'].map((host) =>
+        source(`https://${host}.example/one`),
+      ),
       'weekly',
     )
-    expect(domainCapped.sources).toHaveLength(4)
-    expect(domainCapped.novelDomainsUsed).toBe(4)
-    expect(domainCapped.stoppingReason).toMatch(/cap of 4 distinct domains/)
+    expect(domainCapped.sources).toHaveLength(8)
+    expect(domainCapped.novelDomainsUsed).toBe(8)
+    expect(domainCapped.stoppingReason).toMatch(/cap of 8 distinct domains/)
   })
 
   it('stops at the yearly source and domain caps', () => {
     const sourceCapped = applyHorizonLimits(
-      [1, 2, 3, 4, 5, 6, 7].map((n) => source(`https://year.example/${n}`)),
+      Array.from({ length: 37 }, (_, i) => source(`https://year.example/${i + 1}`)),
       'yearly',
     )
-    expect(sourceCapped.sources).toHaveLength(6)
-    expect(sourceCapped.stoppingReason).toMatch(/cap of 6 sources/)
+    expect(sourceCapped.sources).toHaveLength(36)
+    expect(sourceCapped.stoppingReason).toMatch(/cap of 36 sources/)
 
     const domainCapped = applyHorizonLimits(
-      ['a', 'b', 'c', 'd', 'e', 'f'].map((host) => source(`https://${host}.example/one`)),
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'].map((host) =>
+        source(`https://${host}.example/one`),
+      ),
       'yearly',
     )
-    expect(domainCapped.sources).toHaveLength(5)
-    expect(domainCapped.novelDomainsUsed).toBe(5)
-    expect(domainCapped.stoppingReason).toMatch(/cap of 5 distinct domains/)
+    expect(domainCapped.sources).toHaveLength(12)
+    expect(domainCapped.novelDomainsUsed).toBe(12)
+    expect(domainCapped.stoppingReason).toMatch(/cap of 12 distinct domains/)
   })
 })
 

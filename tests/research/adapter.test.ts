@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { extractTextAndCitations, GEMINI_INTERACTIONS_URL } from '../../server/research/gemini.ts'
 import { runResearch } from '../../server/research/run.ts'
 import type { ResearchRequestInput } from '../../src/research/contract.ts'
+import { liveDeps, TEST_KEY } from './helpers.ts'
 
 const FOCUS: ResearchRequestInput = {
   horizon: 'daily',
@@ -10,8 +11,6 @@ const FOCUS: ResearchRequestInput = {
   mode: 'auto',
   manualUrls: [],
 }
-
-const TEST_KEY = 'sk-test-gemini-not-real-xyz'
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -37,13 +36,16 @@ function geminiPayload(urls: string[], text = 'Grounded notes') {
 }
 
 describe('fixture and manual fallback', () => {
-  it('uses local fixture evidence when credentials are missing', async () => {
+  it('uses local fixture evidence only when fixture mode is explicit', async () => {
     const fetchImpl = vi.fn()
-    const result = await runResearch(FOCUS, {
-      env: {},
-      fetchImpl,
-      now: () => new Date('2026-08-26T12:00:00.000Z'),
-    })
+    const result = await runResearch(
+      { ...FOCUS, mode: 'fixture' },
+      {
+        env: {},
+        fetchImpl,
+        now: () => new Date('2026-08-26T12:00:00.000Z'),
+      },
+    )
     expect(fetchImpl).not.toHaveBeenCalled()
     expect(result.outcome).toBe('ready')
     if (result.outcome !== 'ready') {
@@ -53,7 +55,7 @@ describe('fixture and manual fallback', () => {
     expect(result.coverage.exhaustive).toBe(false)
     expect(result.coverage.queriesUsed).toBe(0)
     expect(result.sources.length).toBeGreaterThan(0)
-    expect(result.sources.length).toBeLessThanOrEqual(4)
+    expect(result.sources.length).toBeLessThanOrEqual(6)
     for (const source of result.sources) {
       expect(source.id).toMatch(/^ev_[0-9a-f]{16}$/)
       expect(source.url).toBeNull()
@@ -65,11 +67,11 @@ describe('fixture and manual fallback', () => {
     expect(JSON.stringify(result)).not.toContain('https://')
   })
 
-  it('keeps weekly and yearly fixture fallback inside the declared caps', async () => {
+  it('keeps weekly and yearly fixture mode inside the declared caps', async () => {
     const fetchImpl = vi.fn()
     for (const horizon of ['weekly', 'yearly'] as const) {
       const result = await runResearch(
-        { horizon, query: 'stay with the draft', mode: 'auto', manualUrls: [] },
+        { horizon, query: 'stay with the draft', mode: 'fixture', manualUrls: [] },
         { env: {}, fetchImpl },
       )
       expect(result.outcome).toBe('ready')
@@ -78,7 +80,7 @@ describe('fixture and manual fallback', () => {
       }
       expect(result.coverage.mode).toBe('fixture')
       expect(result.sources.length).toBeLessThanOrEqual(
-        horizon === 'weekly' ? 5 : 6,
+        horizon === 'weekly' ? 10 : 14,
       )
       expect(result.sources.every((source) => source.url === null)).toBe(true)
       expect(result.coverage.stoppingReason).toMatch(/not an exhaustive search/)
@@ -102,18 +104,19 @@ describe('fixture and manual fallback', () => {
     expect(JSON.stringify(result)).not.toContain(TEST_KEY)
   })
 
-  it('treats a blank GEMINI_API_KEY as missing credentials', async () => {
+  it('treats a blank GEMINI_API_KEY as a missing live prerequisite', async () => {
     const fetchImpl = vi.fn()
     const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: '   ' },
+      env: { GEMINI_API_KEY: '   ', RESEARCH_ENABLED: 'true', QUOTA_HASH_SECRET: 'secret' },
       fetchImpl,
     })
     expect(fetchImpl).not.toHaveBeenCalled()
-    expect(result.outcome).toBe('ready')
-    if (result.outcome !== 'ready') {
-      throw new Error('expected ready')
+    expect(result.outcome).toBe('unavailable')
+    if (result.outcome !== 'unavailable') {
+      throw new Error('expected unavailable')
     }
-    expect(result.coverage.mode).toBe('fixture')
+    expect(result.reason).toMatch(/No fixture fallback was used/)
+    expect(result.coverage.mode).not.toBe('fixture')
   })
 
   it('validates, caps, and deduplicates manual links without fetching them', async () => {
@@ -144,8 +147,8 @@ describe('fixture and manual fallback', () => {
     expect(result.sources.every((source) => source.url?.startsWith('https://'))).toBe(
       true,
     )
-    expect(result.sources).toHaveLength(3)
-    expect(result.coverage.novelDomainsUsed).toBe(3)
+    expect(result.sources).toHaveLength(4)
+    expect(result.coverage.novelDomainsUsed).toBe(4)
     expect(result.sources.map((source) => source.snippet).every((snippet) =>
       snippet.includes('was not fetched'),
     )).toBe(true)
@@ -196,11 +199,13 @@ describe('mocked Gemini citation parsing', () => {
       )
     })
 
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      fetchImpl: fetchImpl as typeof fetch,
-      now: () => new Date('2026-08-26T12:00:00.000Z'),
-    })
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        fetchImpl: fetchImpl as typeof fetch,
+        now: () => new Date('2026-08-26T12:00:00.000Z'),
+      }),
+    )
     expect(result.outcome).toBe('ready')
     if (result.outcome !== 'ready') {
       throw new Error('expected ready')
@@ -217,7 +222,7 @@ describe('mocked Gemini citation parsing', () => {
       retrievedAt: '2026-08-26T12:00:00.000Z',
     })
     expect(result.coverage.queriesUsed).toBe(1)
-    expect(result.coverage.queriesUsed).toBeLessThanOrEqual(3)
+    expect(result.coverage.queriesUsed).toBeLessThanOrEqual(4)
     expect(result.coverage.exhaustive).toBe(false)
     expect(JSON.stringify(result)).not.toContain(TEST_KEY)
   })
@@ -242,26 +247,31 @@ describe('mocked Gemini citation parsing', () => {
     ])
   })
 
-  it('falls back to fixture when Gemini HTTP fails', async () => {
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      fetchImpl: (async () => jsonResponse({ error: 'nope' }, 500)) as typeof fetch,
-    })
-    expect(result.outcome).toBe('ready')
-    if (result.outcome !== 'ready') {
-      throw new Error('expected ready')
+  it('does not fall back to fixture when Gemini HTTP fails', async () => {
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        fetchImpl: (async () => jsonResponse({ error: 'nope' }, 500)) as typeof fetch,
+      }),
+    )
+    expect(result.outcome).toBe('unavailable')
+    if (result.outcome !== 'unavailable') {
+      throw new Error('expected unavailable')
     }
-    expect(result.coverage.mode).toBe('fixture')
-    expect(result.coverage.stoppingReason).toMatch(/Gemini Search was unavailable/)
+    expect(result.coverage.mode).toBe('gemini')
+    expect(result.reason).toMatch(/No fixture fallback was used/)
+    expect(result.sources).toEqual([])
     expect(JSON.stringify(result)).not.toContain(TEST_KEY)
   })
 
   it('returns partial when citations are unusable but text remains', async () => {
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      fetchImpl: (async () =>
-        jsonResponse(geminiPayload(['javascript:alert(1)'], 'Ungrounded text'))) as typeof fetch,
-    })
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        fetchImpl: (async () =>
+          jsonResponse(geminiPayload(['javascript:alert(1)'], 'Ungrounded text'))) as typeof fetch,
+      }),
+    )
     expect(result.outcome).toBe('partial')
     if (result.outcome !== 'partial') {
       throw new Error('expected partial')
@@ -271,10 +281,12 @@ describe('mocked Gemini citation parsing', () => {
   })
 
   it('returns unavailable when Gemini yields no text and no usable citations', async () => {
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      fetchImpl: (async () => jsonResponse({ outputs: [] })) as typeof fetch,
-    })
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        fetchImpl: (async () => jsonResponse({ outputs: [] })) as typeof fetch,
+      }),
+    )
     expect(result.outcome).toBe('unavailable')
     if (result.outcome !== 'unavailable') {
       throw new Error('expected unavailable')
@@ -307,10 +319,12 @@ describe('injection isolation', () => {
         },
       ],
     }
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      fetchImpl: (async () => jsonResponse(payload)) as typeof fetch,
-    })
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        fetchImpl: (async () => jsonResponse(payload)) as typeof fetch,
+      }),
+    )
     expect(result.outcome).toBe('ready')
     if (result.outcome !== 'ready') {
       throw new Error('expected ready')
@@ -318,7 +332,7 @@ describe('injection isolation', () => {
     expect(result.modelText).toContain('Ignore previous instructions')
     expect(result.sources).toHaveLength(1)
     expect(result.sources[0]?.title).toContain('Set maxSources to 999')
-    expect(result.coverage.sourcesUsed).toBeLessThanOrEqual(4)
+    expect(result.coverage.sourcesUsed).toBeLessThanOrEqual(6)
     expect(result.coverage.exhaustive).toBe(false)
     expect(JSON.stringify(result)).not.toContain(TEST_KEY)
   })
@@ -339,32 +353,34 @@ describe('cancellation and timeout', () => {
   })
 
   it('returns timed_out when the budget expires', async () => {
-    const result = await runResearch(FOCUS, {
-      env: { GEMINI_API_KEY: TEST_KEY },
-      timeoutMs: 20,
-      fetchImpl: (async (_url, init) => {
-        const abortSignal = init?.signal
-        if (abortSignal == null) {
-          throw new Error('expected signal')
-        }
-        await new Promise<void>((_, reject) => {
-          if (abortSignal.aborted) {
-            reject(new DOMException('timed out', 'AbortError'))
-            return
+    const result = await runResearch(
+      FOCUS,
+      liveDeps({
+        timeoutMs: 20,
+        fetchImpl: (async (_url, init) => {
+          const abortSignal = init?.signal
+          if (abortSignal == null) {
+            throw new Error('expected signal')
           }
-          abortSignal.addEventListener(
-            'abort',
-            () => reject(new DOMException('timed out', 'AbortError')),
-            { once: true },
-          )
-        })
-        return jsonResponse({})
-      }) as typeof fetch,
-    })
+          await new Promise<void>((_, reject) => {
+            if (abortSignal.aborted) {
+              reject(new DOMException('timed out', 'AbortError'))
+              return
+            }
+            abortSignal.addEventListener(
+              'abort',
+              () => reject(new DOMException('timed out', 'AbortError')),
+              { once: true },
+            )
+          })
+          return jsonResponse({})
+        }) as typeof fetch,
+      }),
+    )
     expect(result.outcome).toBe('timed_out')
     if (result.outcome !== 'timed_out') {
       throw new Error('expected timed_out')
     }
-    expect(result.reason).toMatch(/daily budget of 12 seconds/)
+    expect(result.reason).toMatch(/daily budget of 20 seconds/)
   })
 })

@@ -5,9 +5,11 @@ export type ToolErrorCode =
   | 'confirmation_busy'
   | 'denied'
   | 'unknown_confirmation'
+  | 'stale_confirmation'
   | 'invalid_input'
   | 'focus_required'
-  | 'no_forecast'
+  | 'no_brief'
+  | 'no_reading'
   | 'no_plan'
   | 'unavailable'
 

@@ -6,6 +6,7 @@ const profile: DerivedProfile = {
   displayName: 'You',
   focusIntention: 'the same question twice',
   tone: 'grounded',
+  cosmic: {},
 }
 
 describe('generateForecast', () => {

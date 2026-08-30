@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { INITIAL_STATE, appReducer } from '../../src/domain/loop.ts'
-import type { StoredSessionV1 } from '../../src/domain/types.ts'
+import {
+  FREE_WILL_NOTE,
+  INITIAL_STATE,
+  appReducer,
+  canAdvance,
+  confirmationIdForPayload,
+  type ToolAction,
+} from '../../src/domain/loop.ts'
+import { mustInstant } from '../../src/domain/brand.ts'
+import { packetDigest, skippedLensesFor } from '../../src/domain/trust.ts'
+import { parseReadingPacketV1 } from '../../src/research/packet.ts'
+import type { AppState, ShareInclude, StoredSessionV3 } from '../../src/domain/types.ts'
 
 describe('appReducer horizon caches', () => {
   it('starts with null forecast and plan slots for every horizon', () => {
@@ -249,8 +259,8 @@ describe('persistence reducer cases', () => {
   })
 
   it('HYDRATE restores a stored session as saved', () => {
-    const session: StoredSessionV1 = {
-      schemaVersion: 1,
+    const session: StoredSessionV3 = {
+      schemaVersion: 3,
       savedAt: '2026-08-26T12:00:00.000Z',
       phase: 'choice',
       horizon: 'weekly',
@@ -258,8 +268,11 @@ describe('persistence reducer cases', () => {
         displayName: 'You',
         focusIntention: 'a slower question',
         tone: 'curious',
+        beliefs: { western: { sun: 'virgo' } },
       },
       forecastsByHorizon: { daily: null, weekly: null, yearly: null },
+      readingsByHorizon: { daily: null, weekly: null, yearly: null },
+      resonanceByHorizon: { daily: null, weekly: null, yearly: null },
       plansByHorizon: { daily: null, weekly: null, yearly: null },
     }
 
@@ -270,10 +283,14 @@ describe('persistence reducer cases', () => {
       horizon: 'weekly',
       profile: session.profile,
       forecastsByHorizon: session.forecastsByHorizon,
+      readingsByHorizon: session.readingsByHorizon,
+      resonanceByHorizon: session.resonanceByHorizon,
       plansByHorizon: session.plansByHorizon,
       persistence: { kind: 'saved', savedAt: '2026-08-26T12:00:00.000Z' },
       agentAvailability: INITIAL_STATE.agentAvailability,
       confirmation: { status: 'idle' },
+      desk: { staged: null, ticket: { status: 'idle' } },
+      intake: { status: 'idle' },
       externalShare: { kind: 'none' },
     })
   })
@@ -281,11 +298,13 @@ describe('persistence reducer cases', () => {
 
 describe('confirmation reducer', () => {
   it('approves a profile update only for the pending id', () => {
+    const payload = { kind: 'profile_update' as const, proposed: { tone: 'bold' as const } }
+    const id = confirmationIdForPayload(payload)
     let state = appReducer(INITIAL_STATE, {
       type: 'REQUEST_CONFIRMATION',
       kind: 'profile_update',
       summary: 'change tone',
-      payload: { kind: 'profile_update', proposed: { tone: 'bold' } },
+      payload,
     })
 
     const ignored = appReducer(state, {
@@ -297,39 +316,116 @@ describe('confirmation reducer', () => {
 
     state = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-profile_update',
+      id,
     })
     expect(state.profile.tone).toBe('bold')
+    expect(state.profile.beliefs).toEqual({})
     expect(state.confirmation).toMatchObject({
       status: 'approved',
-      id: 'confirm-profile_update',
+      id,
     })
   })
 
+  it('sets and clears belief fields without inferring omitted keys', () => {
+    let state = appReducer(INITIAL_STATE, {
+      type: 'SET_BELIEFS',
+      beliefs: { western: { sun: 'leo' } },
+    })
+    expect(state.profile.beliefs).toEqual({ western: { sun: 'leo' } })
+
+    state = appReducer(state, {
+      type: 'SET_BELIEFS',
+      beliefs: { western: { sun: 'leo', moon: 'cancer' } },
+    })
+    expect(state.profile.beliefs).toEqual({ western: { sun: 'leo', moon: 'cancer' } })
+
+    state = appReducer(state, {
+      type: 'SET_BELIEFS',
+      beliefs: { western: { sun: 'leo' } },
+    })
+    expect(state.profile.beliefs).toEqual({ western: { sun: 'leo' } })
+    expect(state.profile.beliefs.western).not.toHaveProperty('moon')
+  })
+
+  it('advances from context with focus only and no sun sign', () => {
+    const focused = appReducer(INITIAL_STATE, {
+      type: 'SET_PROFILE_FIELD',
+      field: 'focusIntention',
+      value: 'finish the draft',
+    })
+    expect(focused.profile.beliefs.western?.sun).toBeUndefined()
+    expect(canAdvance(focused)).toBe(true)
+    const advanced = appReducer(focused, { type: 'ADVANCE' })
+    expect(advanced.phase).toBe('cosmos')
+    expect(advanced.profile.beliefs).toEqual({})
+  })
+
+  it('keeps belief fields when a profile_update payload smuggles extra keys', () => {
+    const payload = { kind: 'profile_update' as const, proposed: { tone: 'bold' as const } }
+    const id = confirmationIdForPayload(payload)
+    let state = appReducer(INITIAL_STATE, {
+      type: 'SET_BELIEFS',
+      beliefs: { western: { sun: 'pisces' } },
+    })
+    state = appReducer(state, {
+      type: 'REQUEST_CONFIRMATION',
+      kind: 'profile_update',
+      summary: 'change tone',
+      payload,
+    })
+    if (state.desk.ticket.status !== 'pending') {
+      throw new Error('expected a pending ticket')
+    }
+    const smuggled = {
+      ...state,
+      desk: {
+        ...state.desk,
+        ticket: {
+          ...state.desk.ticket,
+          payload: {
+            kind: 'profile_update' as const,
+            proposed: {
+              tone: 'curious' as const,
+              beliefs: { western: { sun: 'aries' } },
+            },
+          },
+        },
+      },
+    } as unknown as AppState
+    const approved = appReducer(smuggled, {
+      type: 'APPROVE_CONFIRMATION',
+      id,
+    })
+    expect(approved.profile.tone).toBe('curious')
+    expect(approved.profile.beliefs).toEqual({ western: { sun: 'pisces' } })
+  })
+
   it('records external share approval without a send flag', () => {
+    const payload = {
+      kind: 'external_share' as const,
+      include: ['profile'] as ShareInclude[],
+    }
+    const id = confirmationIdForPayload(payload)
     let state = appReducer(INITIAL_STATE, {
       type: 'REQUEST_CONFIRMATION',
       kind: 'external_share',
       summary: 'share profile',
-      payload: {
-        kind: 'external_share',
-        destination: 'gemini-research',
-        include: ['profile'],
-      },
+      payload,
     })
     state = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-external_share',
+      id,
     })
 
     expect(state.externalShare).toMatchObject({
       kind: 'approved_not_sent',
-      destination: 'gemini-research',
       include: ['profile'],
     })
   })
 
   it('does not grant IndexedDB when a plan is approved without persistSession', () => {
+    const payload = { kind: 'plan_save' as const, horizon: 'daily' as const }
+    const id = confirmationIdForPayload(payload)
     let state = appReducer(INITIAL_STATE, {
       type: 'PERSISTENCE_UNDECIDED',
     })
@@ -337,12 +433,12 @@ describe('confirmation reducer', () => {
       type: 'REQUEST_CONFIRMATION',
       kind: 'plan_save',
       summary: 'approve the plan',
-      payload: { kind: 'plan_save', horizon: 'daily' },
+      payload,
     })
 
     const inMemory = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-plan_save',
+      id,
     })
     expect(inMemory.persistence.kind).toBe('undecided')
     expect(inMemory.confirmation).toMatchObject({
@@ -352,7 +448,7 @@ describe('confirmation reducer', () => {
 
     const withPersist = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-plan_save',
+      id,
       persistSession: true,
     })
     expect(withPersist.persistence.kind).toBe('saving')
@@ -363,17 +459,19 @@ describe('confirmation reducer', () => {
   })
 
   it('does not grant persistence from a plan-save while still checking', () => {
+    const payload = { kind: 'plan_save' as const, horizon: 'daily' as const }
+    const id = confirmationIdForPayload(payload)
     let state = appReducer(INITIAL_STATE, {
       type: 'REQUEST_CONFIRMATION',
       kind: 'plan_save',
       summary: 'approve the plan',
-      payload: { kind: 'plan_save', horizon: 'daily' },
+      payload,
     })
     expect(state.persistence.kind).toBe('checking')
 
     state = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-plan_save',
+      id,
       persistSession: true,
     })
     expect(state.persistence.kind).toBe('checking')
@@ -416,6 +514,33 @@ describe('confirmation reducer', () => {
       operation: 'save',
       message: 'write failed',
     })
+  })
+
+  it('does not let a late autosave overwrite an erase or decline error', () => {
+    const erased = appReducer(INITIAL_STATE, {
+      type: 'PERSISTENCE_ERASE_ERROR',
+      message: 'Could not erase the local copy.',
+    })
+    expect(
+      appReducer(erased, {
+        type: 'PERSISTENCE_SAVE_SUCCESS',
+        savedAt: '2026-08-29T12:00:00.000Z',
+      }).persistence,
+    ).toEqual(erased.persistence)
+    expect(
+      appReducer(erased, { type: 'PERSISTENCE_SAVE_START' }).persistence,
+    ).toEqual(erased.persistence)
+
+    const declined = appReducer(INITIAL_STATE, {
+      type: 'PERSISTENCE_DECLINE_ERROR',
+      message: 'disk full',
+    })
+    expect(
+      appReducer(declined, {
+        type: 'PERSISTENCE_SAVE_SUCCESS',
+        savedAt: '2026-08-29T12:00:00.000Z',
+      }).persistence,
+    ).toEqual(declined.persistence)
   })
 
   it('moves consented restart to held so autosave cannot overwrite the stored copy', () => {
@@ -474,15 +599,17 @@ describe('confirmation reducer', () => {
   })
 
   it('keeps an approved or denied slot until consume', () => {
+    const profilePayload = { kind: 'profile_update' as const, proposed: { tone: 'bold' as const } }
+    const profileId = confirmationIdForPayload(profilePayload)
     let state = appReducer(INITIAL_STATE, {
       type: 'REQUEST_CONFIRMATION',
       kind: 'profile_update',
       summary: 'change tone',
-      payload: { kind: 'profile_update', proposed: { tone: 'bold' } },
+      payload: profilePayload,
     })
     state = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: 'confirm-profile_update',
+      id: profileId,
     })
 
     const afterSecondRequest = appReducer(state, {
@@ -493,13 +620,13 @@ describe('confirmation reducer', () => {
     })
     expect(afterSecondRequest.confirmation).toMatchObject({
       status: 'approved',
-      id: 'confirm-profile_update',
+      id: profileId,
       kind: 'profile_update',
     })
 
     const consumed = appReducer(state, {
       type: 'CONSUME_CONFIRMATION',
-      id: 'confirm-profile_update',
+      id: profileId,
     })
     const next = appReducer(consumed, {
       type: 'REQUEST_CONFIRMATION',
@@ -512,19 +639,20 @@ describe('confirmation reducer', () => {
       kind: 'personal_data_access',
     })
 
+    const sharePayload = {
+      kind: 'external_share' as const,
+      include: ['profile'] as ShareInclude[],
+    }
+    const shareId = confirmationIdForPayload(sharePayload)
     let denied = appReducer(INITIAL_STATE, {
       type: 'REQUEST_CONFIRMATION',
       kind: 'external_share',
       summary: 'share profile',
-      payload: {
-        kind: 'external_share',
-        destination: 'gemini-research',
-        include: ['profile'],
-      },
+      payload: sharePayload,
     })
     denied = appReducer(denied, {
       type: 'DENY_CONFIRMATION',
-      id: 'confirm-external_share',
+      id: shareId,
     })
     const deniedHeld = appReducer(denied, {
       type: 'REQUEST_CONFIRMATION',
@@ -534,8 +662,166 @@ describe('confirmation reducer', () => {
     })
     expect(deniedHeld.confirmation).toMatchObject({
       status: 'denied',
-      id: 'confirm-external_share',
+      id: shareId,
       kind: 'external_share',
     })
+  })
+})
+
+describe('studio advance, resonance, and tools', () => {
+  it('lets cosmos and contrast advance on an adopted reading with no fixture', () => {
+    const packet = parseReadingPacketV1({
+      schemaVersion: 1,
+      horizon: 'weekly',
+      sources: [
+        {
+          id: 'ev_week_energy',
+          title: 'Weekly energy note',
+          url: 'https://example.com/weekly-energy',
+          snippet: 'A current weekly energy note.',
+          domain: 'example.com',
+          provenance: {
+            provider: 'agent',
+            method: 'untrusted_submission',
+            query: 'weekly energy',
+          },
+        },
+      ],
+      sections: [
+        {
+          id: 'energyOverview',
+          title: 'Energy',
+          frameworkLabel: 'Guide',
+          reflection: 'Sit with the week.',
+          evidenceIds: ['ev_week_energy'],
+        },
+      ],
+    })
+    if (packet === null) {
+      throw new Error('expected weekly packet')
+    }
+    const state: AppState = {
+      ...INITIAL_STATE,
+      phase: 'contrast',
+      horizon: 'weekly',
+      profile: {
+        ...INITIAL_STATE.profile,
+        focusIntention: 'protect one block of attention',
+      },
+      readingsByHorizon: {
+        daily: null,
+        weekly: {
+          horizon: packet.horizon,
+          adoptedAt: mustInstant(Date.parse('2026-08-29T12:00:00.000Z')),
+          packetDigest: packetDigest(packet),
+          sources: packet.sources,
+          sections: packet.sections,
+          coverage: {
+            sourcesConsidered: 1,
+            sourcesUsed: 1,
+            timeWindowDescription: 'Adopted from a reviewed reading packet.',
+            stoppingReason:
+              'The person adopted this packet. It is not an exhaustive search.',
+            mode: 'adopted',
+            exhaustive: false,
+          },
+          skippedLenses: skippedLensesFor(packet, {}),
+        },
+        yearly: null,
+      },
+    }
+    expect(state.forecastsByHorizon.weekly).toBeNull()
+    expect(canAdvance(state)).toBe(true)
+    const next = appReducer(state, { type: 'ADVANCE' })
+    expect(next.phase).toBe('choice')
+    expect(next.plansByHorizon.weekly).toEqual({
+      horizon: 'weekly',
+      createdAt: '2026-08-29T12:00:00.000Z',
+      steps: [],
+      freeWillNote: FREE_WILL_NOTE,
+    })
+  })
+
+  it('no-ops SET_RESONANCE on hidden ids and repeats', () => {
+    const packet = parseReadingPacketV1({
+      schemaVersion: 1,
+      horizon: 'weekly',
+      sources: [
+        {
+          id: 'ev_week_energy',
+          title: 'Weekly energy note',
+          url: 'https://example.com/weekly-energy',
+          snippet: 'A current weekly energy note.',
+          domain: 'example.com',
+          provenance: {
+            provider: 'agent',
+            method: 'untrusted_submission',
+            query: 'weekly energy',
+          },
+        },
+      ],
+      sections: [
+        {
+          id: 'energyOverview',
+          title: 'Energy',
+          frameworkLabel: 'Guide',
+          reflection: 'Sit with the week.',
+          evidenceIds: ['ev_week_energy'],
+        },
+      ],
+    })
+    if (packet === null) {
+      throw new Error('expected weekly packet')
+    }
+    const state: AppState = {
+      ...INITIAL_STATE,
+      horizon: 'weekly',
+      readingsByHorizon: {
+        daily: null,
+        weekly: {
+          horizon: packet.horizon,
+          adoptedAt: mustInstant(1_000),
+          packetDigest: packetDigest(packet),
+          sources: packet.sources,
+          sections: packet.sections,
+          coverage: {
+            sourcesConsidered: 1,
+            sourcesUsed: 1,
+            timeWindowDescription: 'Adopted from a reviewed reading packet.',
+            stoppingReason:
+              'The person adopted this packet. It is not an exhaustive search.',
+            mode: 'adopted',
+            exhaustive: false,
+          },
+          skippedLenses: skippedLensesFor(packet, {}),
+        },
+        yearly: null,
+      },
+    }
+    const hidden = appReducer(state, {
+      type: 'SET_RESONANCE',
+      sectionId: 'numerology',
+      mark: 'resonates',
+    })
+    expect(hidden).toBe(state)
+    const marked = appReducer(state, {
+      type: 'SET_RESONANCE',
+      sectionId: 'energyOverview',
+      mark: 'resonates',
+    })
+    expect(marked.resonanceByHorizon.weekly?.energyOverview).toBe('resonates')
+    const again = appReducer(marked, {
+      type: 'SET_RESONANCE',
+      sectionId: 'energyOverview',
+      mark: 'resonates',
+    })
+    expect(again).toBe(marked)
+  })
+
+  it('keeps SET_RESONANCE out of ToolAction', () => {
+    type Excluded = Extract<ToolAction, { type: 'SET_RESONANCE' }>
+    type AssertNever<T extends never> = T
+    const _check: AssertNever<Excluded> = undefined as never
+    expect(_check).toBeUndefined()
   })
 })

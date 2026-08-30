@@ -1,7 +1,16 @@
+import { useEffect, useRef, type Dispatch } from 'react'
+import type { AppAction } from '../domain/loop.ts'
+import { hasPersistenceConsent } from '../domain/selectors.ts'
 import type { PersistenceStatus } from '../domain/types.ts'
+import {
+  saveSession,
+  type SessionFields,
+} from '../persistence/sessionStore.ts'
 
 interface PersistenceBarProps {
   persistence: PersistenceStatus
+  session: SessionFields
+  dispatch: Dispatch<AppAction>
   onGrant: () => void
   onDecline: () => void
   onRetry: () => void
@@ -10,6 +19,8 @@ interface PersistenceBarProps {
 
 export function PersistenceBar({
   persistence,
+  session,
+  dispatch,
   onGrant,
   onDecline,
   onRetry,
@@ -17,6 +28,11 @@ export function PersistenceBar({
 }: PersistenceBarProps) {
   return (
     <section className="persistence-bar" aria-label="Local saving">
+      <SessionPersistWatcher
+        persistence={persistence}
+        session={session}
+        dispatch={dispatch}
+      />
       <PersistenceBody
         persistence={persistence}
         onGrant={onGrant}
@@ -28,13 +44,95 @@ export function PersistenceBar({
   )
 }
 
+function SessionPersistWatcher({
+  persistence,
+  session,
+  dispatch,
+}: {
+  persistence: PersistenceStatus
+  session: SessionFields
+  dispatch: Dispatch<AppAction>
+}) {
+  const consent = hasPersistenceConsent(persistence)
+  const eraseFailed =
+    persistence.kind === 'error' && persistence.operation === 'erase'
+  const {
+    phase,
+    horizon,
+    profile,
+    forecastsByHorizon,
+    plansByHorizon,
+    readingsByHorizon,
+    resonanceByHorizon,
+  } = session
+
+  const persistenceRef = useRef(persistence)
+  useEffect(() => {
+    persistenceRef.current = persistence
+  }, [persistence])
+
+  useEffect(() => {
+    if (!consent || eraseFailed) {
+      return
+    }
+    let cancelled = false
+    const timeoutId = window.setTimeout(() => {
+      if (cancelled || !hasPersistenceConsent(persistenceRef.current)) {
+        return
+      }
+      dispatch({ type: 'PERSISTENCE_SAVE_START' })
+      void saveSession({
+        phase,
+        horizon,
+        profile,
+        forecastsByHorizon,
+        readingsByHorizon,
+        resonanceByHorizon,
+        plansByHorizon,
+      }).then((result) => {
+        if (cancelled || !hasPersistenceConsent(persistenceRef.current)) {
+          return
+        }
+        if ('savedAt' in result) {
+          dispatch({ type: 'PERSISTENCE_SAVE_SUCCESS', savedAt: result.savedAt })
+        } else {
+          dispatch({ type: 'PERSISTENCE_SAVE_ERROR', message: result.error })
+        }
+      })
+    }, 400)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeoutId)
+    }
+  }, [
+    consent,
+    eraseFailed,
+    dispatch,
+    phase,
+    horizon,
+    profile,
+    forecastsByHorizon,
+    plansByHorizon,
+    readingsByHorizon,
+    resonanceByHorizon,
+  ])
+
+  return null
+}
+
 function PersistenceBody({
   persistence,
   onGrant,
   onDecline,
   onRetry,
   onClear,
-}: PersistenceBarProps) {
+}: {
+  persistence: PersistenceStatus
+  onGrant: () => void
+  onDecline: () => void
+  onRetry: () => void
+  onClear: () => void
+}) {
   switch (persistence.kind) {
     case 'checking':
       return (
@@ -52,8 +150,9 @@ function PersistenceBody({
         <>
           <p role="status">
             Saving is optional. If you opt in, this browser stores the current
-            horizon, focus intention, tone, and any generated forecasts and
-            choice-plan steps for each horizon. The copy stays only in this
+            horizon, focus intention, tone, any self-supplied belief-system
+            fields you entered, adopted readings, and any generated forecasts
+            and choice-plan steps for each horizon. The copy stays only in this
             browser profile. It is never sent anywhere, and you can turn saving
             off and erase it at any time.
           </p>

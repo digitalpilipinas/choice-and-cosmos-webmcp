@@ -70,16 +70,16 @@ describe('secret boundary', () => {
     }
   })
 
-  it('leaves the T004 tool catalog unchanged', () => {
+  it('registers the V3-4 eight-tool catalog', () => {
     expect(TOOL_NAMES).toEqual([
       'get_session_status',
       'request_profile_access',
       'propose_profile_update',
-      'generate_forecast',
-      'inspect_evidence',
-      'draft_choice_plan',
+      'get_research_brief',
+      'submit_reading_packet',
+      'inspect_reading',
+      'propose_choice_plan',
       'request_plan_save',
-      'request_external_share',
     ])
   })
 })

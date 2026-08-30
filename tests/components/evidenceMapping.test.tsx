@@ -6,6 +6,8 @@ import {
   evidenceForSection,
   sectionsCitingEvidence,
 } from '../../src/domain/selectors.ts'
+import { INITIAL_STATE } from '../../src/domain/loop.ts'
+import { studioView } from '../../src/domain/studioView.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
 
@@ -23,7 +25,7 @@ describe('evidence mapping', () => {
   it('shows cited evidence IDs in Cosmos and citing section titles in Contrast', async () => {
     const user = userEvent.setup()
     const forecast = generateForecast(
-      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded' },
+      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded', cosmic: {} },
       'daily',
     )
 
@@ -36,8 +38,33 @@ describe('evidence mapping', () => {
 
     await screen.findByRole('heading', { name: 'Cosmos' })
 
-    for (const section of forecast.sections) {
-      const cited = evidenceForSection(forecast, section)
+    const view = studioView({
+      ...INITIAL_STATE,
+      phase: 'cosmos',
+      horizon: 'daily',
+      profile: {
+        displayName: 'You',
+        focusIntention: FOCUS,
+        tone: 'grounded',
+        beliefs: {},
+      },
+      forecastsByHorizon: {
+        daily: forecast,
+        weekly: null,
+        yearly: null,
+      },
+    })
+    if (view.reading.status !== 'ready') {
+      throw new Error('expected ready reading')
+    }
+    const reading = view.reading
+
+    for (const section of reading.sections) {
+      const fixtureSection = forecast.sections.find((item) => item.id === section.id)
+      if (fixtureSection === undefined) {
+        throw new Error(`missing fixture section ${section.id}`)
+      }
+      const cited = evidenceForSection(forecast, fixtureSection)
       if (cited.length === 0) {
         continue
       }
@@ -50,10 +77,10 @@ describe('evidence mapping', () => {
     }
     expect(screen.queryByText('No evidence IDs cited')).toBeNull()
     expect(screen.getAllByText('Grounded source notes').length).toBe(
-      forecast.sections.length,
+      reading.sections.length,
     )
     expect(screen.getAllByText('Reflective interpretation').length).toBe(
-      forecast.sections.length,
+      reading.sections.length,
     )
 
     await user.click(screen.getByRole('button', { name: 'See the contrast' }))
@@ -61,7 +88,12 @@ describe('evidence mapping', () => {
 
     for (const item of forecast.evidence) {
       expect(screen.getByText(item.id)).toBeInTheDocument()
-      const citing = sectionsCitingEvidence(forecast, item.id)
+      const citing = sectionsCitingEvidence(forecast, item.id).filter((section) =>
+        reading.sections.some((visible) => visible.id === section.id),
+      )
+      if (citing.length === 0) {
+        continue
+      }
       const list = screen.getByRole('list', {
         name: `Sections citing ${item.id}`,
       })

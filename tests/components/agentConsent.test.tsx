@@ -2,11 +2,11 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
-import { confirmationIdFor } from '../../src/domain/loop.ts'
+import { confirmationIdForPayload } from '../../src/domain/loop.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
 import type { ModelContextTool } from '../../src/webmcp/detect.ts'
 import { TOOL_NAMES } from '../../src/webmcp/catalog.ts'
-import { runTool } from '../../src/webmcp/tools.ts'
+import { profileAccessPayload, runTool } from '../../src/webmcp/tools.ts'
 import { appReducer, INITIAL_STATE } from '../../src/domain/loop.ts'
 
 const FOCUS = 'keep the draft honest overnight'
@@ -69,14 +69,14 @@ describe('agent fallback and confirmation UI', () => {
     expect(deniedFirst).toMatchObject({
       ok: false,
       code: 'needs_confirmation',
-      confirmationId: confirmationIdFor('personal_data_access'),
+      confirmationId: confirmationIdForPayload(profileAccessPayload()),
     })
     expect(JSON.stringify(deniedFirst)).not.toContain(FOCUS)
 
     await screen.findByRole('button', { name: 'Approve this request' })
     const agentBar = screen.getByRole('region', { name: 'Agent tools' })
     expect(
-      within(agentBar).getByText(/read your display name, focus intention, and tone/i),
+      within(agentBar).getByText(/exact profile fields listed on this page/i),
     ).toBeInTheDocument()
     expect(within(agentBar).getByText(FOCUS)).toBeInTheDocument()
 
@@ -157,7 +157,7 @@ describe('agent fallback and confirmation UI', () => {
     })
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(dialog).toHaveAccessibleDescription(
-      /read your display name, focus intention, and tone/i,
+      /exact profile fields listed on this page/i,
     )
     expect(screen.getByRole('button', { name: 'Approve this request' })).toHaveFocus()
 
@@ -283,17 +283,16 @@ describe('agent fallback and confirmation UI', () => {
     render(<App />)
     await screen.findByText(/Agent tools are available in this browser/)
     await waitFor(() => {
-      expect(registered.has('generate_forecast')).toBe(true)
+      expect(registered.has('request_plan_save')).toBe(true)
     })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
-    const generate = registered.get('generate_forecast')
     const save = registered.get('request_plan_save')
-    if (generate === undefined || save === undefined) {
-      throw new Error('expected generate_forecast and request_plan_save')
+    if (save === undefined) {
+      throw new Error('expected request_plan_save')
     }
 
-    await generate.execute({})
     await save.execute({})
 
     const dialog = await screen.findByRole('dialog', {
@@ -328,17 +327,16 @@ describe('agent fallback and confirmation UI', () => {
     render(<App />)
     await screen.findByText(/Agent tools are available in this browser/)
     await waitFor(() => {
-      expect(registered.has('generate_forecast')).toBe(true)
+      expect(registered.has('request_plan_save')).toBe(true)
     })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
-    const generate = registered.get('generate_forecast')
     const save = registered.get('request_plan_save')
-    if (generate === undefined || save === undefined) {
-      throw new Error('expected generate_forecast and request_plan_save')
+    if (save === undefined) {
+      throw new Error('expected request_plan_save')
     }
 
-    await generate.execute({})
     await save.execute({})
 
     const dialog = await screen.findByRole('dialog', {
@@ -385,10 +383,10 @@ describe('approve path for profile access through the reducer', () => {
     state = first.actions.reduce(appReducer, state)
     state = appReducer(state, {
       type: 'APPROVE_CONFIRMATION',
-      id: confirmationIdFor('personal_data_access'),
+      id: confirmationIdForPayload(profileAccessPayload()),
     })
     const second = runTool(state, 'request_profile_access', {
-      confirmationId: confirmationIdFor('personal_data_access'),
+      confirmationId: confirmationIdForPayload(profileAccessPayload()),
     })
     expect(second.result).toEqual({
       ok: true,

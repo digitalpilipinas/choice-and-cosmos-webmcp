@@ -7,6 +7,7 @@ import type {
   EvidenceProvenance,
   HorizonCaps,
   ResearchCoverage,
+  ResearchMode,
   ResearchProvider,
   ResearchSource,
 } from '../../src/research/contract.ts'
@@ -175,6 +176,10 @@ export function applyHorizonLimits(
       hitDomainCap,
     }),
   }
+}
+
+export function coverageModeFor(mode: ResearchMode): ResearchProvider {
+  return mode === 'auto' ? 'gemini' : mode
 }
 
 export function coverageFor(input: {

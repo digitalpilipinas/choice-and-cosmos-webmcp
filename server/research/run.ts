@@ -3,21 +3,25 @@ import { HORIZON_CAPS, NON_EXHAUSTIVE, timeoutSeconds } from '../../src/research
 import type {
   EvidenceProvenance,
   ResearchCoverage,
-  ResearchProvider,
   ResearchRequestInput,
   ResearchResult,
   ResearchSource,
 } from '../../src/research/contract.ts'
+import { liveGate, type LiveGate } from './gate.ts'
 import { callGeminiSearch } from './gemini.ts'
 import {
   applyHorizonLimits,
   coverageFor,
+  coverageModeFor,
   toSource,
   type CitationCandidate,
 } from './normalize.ts'
+import { hashVisitorIdentity, utcDay, type QuotaStore } from './quota.ts'
 
 export interface ResearchEnv {
   GEMINI_API_KEY?: string
+  RESEARCH_ENABLED?: string
+  QUOTA_HASH_SECRET?: string
 }
 
 export interface ResearchDeps {
@@ -26,10 +30,9 @@ export interface ResearchDeps {
   now?: () => Date
   timeoutMs?: number
   signal?: AbortSignal
+  quota?: QuotaStore
+  trustedVisitorIp?: string | null
 }
-
-const FIXTURE_FALLBACK_REASON =
-  'No Gemini credentials are configured. Using local fixture evidence that was not fetched from the internet.'
 
 const MANUAL_SNIPPET =
   'User-supplied link. The page was not fetched and its content was not sent anywhere.'
@@ -50,19 +53,28 @@ export async function runResearch(
     return interrupted('cancelled', input, 'Research was cancelled.')
   }
 
-  const provider = resolveProvider(input, deps.env)
+  if (input.mode === 'manual') {
+    return runManual(input, retrievedAt)
+  }
+  if (input.mode === 'fixture') {
+    return runFixture(
+      input,
+      retrievedAt,
+      'Using local fixture evidence that was not fetched from the internet.',
+    )
+  }
+
+  const gate = liveGate({
+    env: deps.env,
+    quota: deps.quota,
+    trustedVisitorIp: deps.trustedVisitorIp,
+  })
+  if (gate.kind !== 'ok') {
+    return closedUnavailable(input, gate.reason)
+  }
+
   try {
-    if (provider === 'manual') {
-      return runManual(input, retrievedAt)
-    }
-    if (provider === 'fixture') {
-      const reason =
-        input.mode === 'fixture'
-          ? 'Using local fixture evidence that was not fetched from the internet.'
-          : FIXTURE_FALLBACK_REASON
-      return runFixture(input, retrievedAt, reason)
-    }
-    return await runGemini(input, deps, retrievedAt, combined, timeout, deps.signal)
+    return await runGemini(input, deps, retrievedAt, combined, timeout, deps.signal, gate, now())
   } catch (error) {
     if (isAbortError(error)) {
       if (deps.signal?.aborted) {
@@ -74,32 +86,14 @@ export async function runResearch(
         `Research timed out after the ${input.horizon} budget of ${timeoutSeconds(input.horizon)} seconds. ${NON_EXHAUSTIVE}`,
       )
     }
-    return runFixture(
+    return closedUnavailable(
       input,
-      retrievedAt,
-      `Gemini Search was unavailable. Using local fixture evidence that was not fetched from the internet. ${NON_EXHAUSTIVE}`,
+      `Gemini Search was unavailable. No fixture fallback was used. ${NON_EXHAUSTIVE}`,
     )
   }
 }
 
-function resolveProvider(
-  input: ResearchRequestInput,
-  env: ResearchEnv,
-): ResearchProvider {
-  if (input.mode === 'manual') {
-    return 'manual'
-  }
-  if (input.mode === 'fixture') {
-    return 'fixture'
-  }
-  return hasApiKey(env) ? 'gemini' : 'fixture'
-}
-
-function hasApiKey(env: ResearchEnv): boolean {
-  return typeof env.GEMINI_API_KEY === 'string' && env.GEMINI_API_KEY.trim().length > 0
-}
-
-function runFixture(
+export function runFixture(
   input: ResearchRequestInput,
   retrievedAt: string,
   reason: string,
@@ -200,13 +194,48 @@ async function runGemini(
   signal: AbortSignal,
   timeoutSignal: AbortSignal,
   requestSignal: AbortSignal | undefined,
+  gate: Extract<LiveGate, { kind: 'ok' }>,
+  now: Date,
 ): Promise<ResearchResult> {
-  const apiKey = deps.env.GEMINI_API_KEY?.trim() ?? ''
+  const visitorHash = await hashVisitorIdentity(gate.visitorIp, gate.secret)
+  const reserved = await gate.quota.reserve(utcDay(now), visitorHash, signal)
+  if (reserved.kind === 'aborted') {
+    return requestSignal?.aborted
+      ? interrupted('cancelled', input, 'Research was cancelled.')
+      : interrupted(
+          'timed_out',
+          input,
+          `Research timed out after the ${input.horizon} budget of ${timeoutSeconds(input.horizon)} seconds. ${NON_EXHAUSTIVE}`,
+        )
+  }
+  if (reserved.kind === 'quota_exceeded') {
+    return closedUnavailable(
+      input,
+      `Gemini quota exceeded for the ${reserved.scope} UTC-day bucket. No provider call was made.`,
+    )
+  }
+  if (reserved.kind !== 'reserved') {
+    return closedUnavailable(input, reserved.reason)
+  }
+  if (signal.aborted) {
+    const released = await gate.quota.release(utcDay(now), visitorHash)
+    if (released.kind !== 'released') {
+      return closedUnavailable(input, released.reason)
+    }
+    return requestSignal?.aborted
+      ? interrupted('cancelled', input, 'Research was cancelled.')
+      : interrupted(
+          'timed_out',
+          input,
+          `Research timed out after the ${input.horizon} budget of ${timeoutSeconds(input.horizon)} seconds. ${NON_EXHAUSTIVE}`,
+        )
+  }
+
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch
   const called = await callGeminiSearch({
     query: input.query,
     horizon: input.horizon,
-    apiKey,
+    apiKey: gate.apiKey,
     fetchImpl,
     signal,
   })
@@ -278,6 +307,25 @@ async function runGemini(
   }
 }
 
+function closedUnavailable(input: ResearchRequestInput, reason: string): ResearchResult {
+  const coverage = coverageFor({
+    horizon: input.horizon,
+    mode: coverageModeFor(input.mode),
+    sourcesConsidered: 0,
+    sources: [],
+    queriesUsed: 0,
+    novelDomainsUsed: 0,
+    stoppingReason: reason,
+  })
+  return {
+    outcome: 'unavailable',
+    reason,
+    sources: [],
+    coverage,
+    modelText: '',
+  }
+}
+
 function interrupted(
   outcome: 'cancelled' | 'timed_out',
   input: ResearchRequestInput,
@@ -293,7 +341,7 @@ function interrupted(
     extras?.coverage ??
     coverageFor({
       horizon: input.horizon,
-      mode: 'fixture',
+      mode: coverageModeFor(input.mode),
       sourcesConsidered: 0,
       sources,
       queriesUsed: 0,

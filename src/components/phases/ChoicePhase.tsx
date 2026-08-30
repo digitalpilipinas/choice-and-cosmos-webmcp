@@ -1,16 +1,10 @@
 import { useState } from 'react'
 import { createCustomStepId } from '../../domain/loop.ts'
-import {
-  currentForecast,
-  currentPlan,
-  forecastCockpit,
-  hasPersistenceConsent,
-  uncertaintyFor,
-} from '../../domain/selectors.ts'
+import { PLAN_BOUNDS } from '../../domain/bounds.ts'
 import { ForecastCockpit } from '../ForecastCockpit.tsx'
 import { FreeWillBanner } from '../FreeWillBanner.tsx'
 import type { ChoiceStepStatus } from '../../domain/types.ts'
-import type { PhaseProps } from './phaseProps.ts'
+import type { StudioPhaseProps } from './phaseProps.ts'
 
 const STATUS_ACTIONS: readonly {
   status: ChoiceStepStatus
@@ -21,22 +15,9 @@ const STATUS_ACTIONS: readonly {
   { status: 'dismissed', label: 'Dismiss' },
 ]
 
-export function ChoicePhase({ state, dispatch }: PhaseProps) {
+export function ChoicePhase({ studio, dispatch }: StudioPhaseProps) {
   const [draftTitle, setDraftTitle] = useState('')
   const [draftNote, setDraftNote] = useState('')
-  const plan = currentPlan(state)
-  const forecast = currentForecast(state)
-  const cockpit = forecastCockpit(state.horizon, state.profile, forecast)
-  const uncertainty = uncertaintyFor(forecast)
-  if (plan === null) {
-    return (
-      <section className="phase" aria-labelledby="choice-heading">
-        <h2 id="choice-heading">Choice</h2>
-        <p>No plan is in memory yet. Go back and open a report from Context.</p>
-        <ForecastCockpit cockpit={cockpit} uncertainty={uncertainty} />
-      </section>
-    )
-  }
 
   return (
     <section className="phase choice-phase" aria-labelledby="choice-heading">
@@ -49,10 +30,38 @@ export function ChoicePhase({ state, dispatch }: PhaseProps) {
         </p>
       </header>
       <FreeWillBanner />
-      <ForecastCockpit cockpit={cockpit} uncertainty={uncertainty} />
-      <p className="plan-note">{plan.freeWillNote}</p>
+      <ForecastCockpit cockpit={studio.cockpit} uncertainty={studio.uncertainty} />
+      {studio.reading.status === 'ready' ? (
+        <ol className="resonance-list">
+          {studio.reading.sections.map((section) => (
+            <li key={section.id}>
+              <h3>{section.title}</h3>
+              <p className="reading-prose">{section.reflection}</p>
+              <div role="group" aria-label={`${section.title} resonance`}>
+                {studio.resonance.options.map((option) => (
+                  <button
+                    key={option.mark}
+                    type="button"
+                    aria-pressed={section.resonanceMark === option.mark}
+                    onClick={() =>
+                      dispatch({
+                        type: 'SET_RESONANCE',
+                        sectionId: section.id,
+                        mark: option.mark,
+                      })
+                    }
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      <p className="plan-note">{studio.choice.freeWillNote}</p>
       <ol className="step-list">
-        {plan.steps.map((step, index) => (
+        {studio.choice.steps.map((step, index) => (
           <li key={step.id} className={`plan-step is-${step.status}`}>
             <header>
               <span className="step-ordinal">{index + 1}</span>
@@ -104,15 +113,8 @@ export function ChoicePhase({ state, dispatch }: PhaseProps) {
                     userNote: event.target.value,
                   })
                 }
-                placeholder={
-                  hasPersistenceConsent(state.persistence) &&
-                  !(
-                    state.persistence.kind === 'error' &&
-                    state.persistence.operation === 'erase'
-                  )
-                    ? 'A reminder for you. It is stored with this session on this device.'
-                    : 'A reminder for you. It stays in this tab unless you choose to save.'
-                }
+                maxLength={PLAN_BOUNDS.maxUserNoteLength}
+                placeholder={studio.choice.notePlaceholder}
               />
             </div>
           </li>
@@ -147,6 +149,7 @@ export function ChoicePhase({ state, dispatch }: PhaseProps) {
             id="custom-step-title"
             type="text"
             value={draftTitle}
+            maxLength={PLAN_BOUNDS.maxTitleLength}
             onChange={(event) => setDraftTitle(event.target.value)}
             placeholder="Something you might actually do"
           />
@@ -157,6 +160,7 @@ export function ChoicePhase({ state, dispatch }: PhaseProps) {
             id="custom-step-note"
             rows={2}
             value={draftNote}
+            maxLength={PLAN_BOUNDS.maxUserNoteLength}
             onChange={(event) => setDraftNote(event.target.value)}
             placeholder="A reminder for you. Optional."
           />

@@ -1,17 +1,46 @@
 import { generateForecast } from '../fixtures/generateForecast.ts'
-import { currentForecast, currentPlan } from './selectors.ts'
+import { PLAN_BOUNDS } from './bounds.ts'
+import { mustInstant, type ConfirmationId, type Instant } from './brand.ts'
+import { liveBriefDigest } from '../research/brief.ts'
+import {
+  EMPTY_DESK,
+  adoptStagedPacket,
+  approveTicket,
+  clearStaged,
+  confirmationIdForPayload,
+  confirmationView,
+  consumeTicket,
+  denyTicket,
+  issueConfirmation,
+  sectionsAdmissible,
+  stagePacket,
+} from './trust.ts'
+import { applyIntake, EMPTY_INTAKE, type IntakeCommand } from '../research/coordinator.ts'
+import { admitPacket } from '../research/gate.ts'
+import type { ReadingPacketV1 } from '../research/packet.ts'
+import { emptyCosmic } from './cosmic.ts'
+import { emptyBeliefs, parseModularProfile, type ModularBeliefs } from './profile.ts'
+import { currentPlan, currentReading } from './selectors.ts'
+import {
+  applySetResonance,
+  hasReadableCorpus,
+  type SetResonanceAction,
+} from './studioView.ts'
 import type {
   AgentAvailability,
   AppState,
   ChoicePlanDraft,
   ChoiceStepStatus,
   ConfirmationPayload,
+  ContextProfile,
   DerivedProfile,
   ForecastFixture,
   HorizonId,
   PersistenceStatus,
   PhaseId,
-  StoredSessionV1,
+  ReadingArtifact,
+  ResonanceMap,
+  StoredSessionV3,
 } from './types.ts'
 
 export const PHASE_ORDER = [
@@ -30,6 +59,14 @@ function emptyPlans(): Record<HorizonId, ChoicePlanDraft | null> {
   return { daily: null, weekly: null, yearly: null }
 }
 
+function emptyReadings(): Record<HorizonId, ReadingArtifact | null> {
+  return { daily: null, weekly: null, yearly: null }
+}
+
+function emptyResonance(): Record<HorizonId, ResonanceMap | null> {
+  return { daily: null, weekly: null, yearly: null }
+}
+
 const IDLE_CONFIRMATION = { status: 'idle' } as const
 const NO_SHARE = { kind: 'none' } as const
 
@@ -37,10 +74,19 @@ function freshSessionContent(): Omit<AppState, 'persistence' | 'agentAvailabilit
   return {
     phase: 'context',
     horizon: 'daily',
-    profile: { displayName: 'You', focusIntention: '', tone: 'grounded' },
+    profile: {
+      displayName: 'You',
+      focusIntention: '',
+      tone: 'grounded',
+      beliefs: emptyBeliefs(),
+    },
     forecastsByHorizon: emptyForecasts(),
+    readingsByHorizon: emptyReadings(),
+    resonanceByHorizon: emptyResonance(),
     plansByHorizon: emptyPlans(),
     confirmation: IDLE_CONFIRMATION,
+    desk: EMPTY_DESK,
+    intake: EMPTY_INTAKE,
     externalShare: NO_SHARE,
   }
 }
@@ -51,31 +97,53 @@ export const INITIAL_STATE: AppState = {
   agentAvailability: { kind: 'checking' },
 }
 
-export function confirmationIdFor(kind: ConfirmationPayload['kind']): string {
-  return `confirm-${kind}`
+export function fixtureDerivedProfile(profile: ContextProfile): DerivedProfile {
+  return {
+    displayName: profile.displayName,
+    focusIntention: profile.focusIntention,
+    tone: profile.tone,
+    cosmic: emptyCosmic(),
+  }
 }
+
+export { confirmationIdForPayload } from './trust.ts'
 
 export const FREE_WILL_NOTE =
   'This is a reflective guide, not a command. You retain free will. Nothing here is required or automatic.'
 
 type SetProfileFieldAction = {
-  [K in keyof DerivedProfile]: {
+  [K in keyof ContextProfile]: {
     type: 'SET_PROFILE_FIELD'
     field: K
-    value: DerivedProfile[K]
+    value: ContextProfile[K]
   }
-}[keyof DerivedProfile]
+}[keyof ContextProfile]
+
+type SetBeliefsAction = {
+  type: 'SET_BELIEFS'
+  beliefs: ModularBeliefs
+}
 
 export type AppAction =
   | { type: 'SET_HORIZON'; horizon: HorizonId }
   | SetProfileFieldAction
+  | SetBeliefsAction
   | { type: 'GENERATE_FORECAST' }
   | { type: 'ADVANCE' }
   | { type: 'BACK' }
   | { type: 'SET_STEP_STATUS'; stepId: string; status: ChoiceStepStatus }
   | { type: 'SET_STEP_NOTE'; stepId: string; userNote: string }
   | { type: 'RESTART' }
-  | { type: 'HYDRATE'; session: StoredSessionV1 }
+  | { type: 'HYDRATE'; session: StoredSessionV3 }
+  | { type: 'STAGE_PACKET'; packet: ReadingPacketV1; now: Instant }
+  | { type: 'ADOPT_STAGED_PACKET'; confirmationId: ConfirmationId; now: Instant }
+  | { type: 'INTAKE_BEGIN'; horizon: HorizonId }
+  | { type: 'INTAKE_APPEND_SOURCES'; sources: unknown[] }
+  | { type: 'INTAKE_APPEND_SECTIONS'; sections: unknown[] }
+  | { type: 'INTAKE_FINALIZE' }
+  | { type: 'INTAKE_IMPORT_JSON'; text: string; now: Instant }
+  | { type: 'INTAKE_CANCEL' }
+  | { type: 'REQUEST_ADOPT_STAGED'; now: Instant }
   | { type: 'PERSISTENCE_UNAVAILABLE'; reason: string }
   | { type: 'PERSISTENCE_UNDECIDED' }
   | { type: 'PERSISTENCE_DECLINED_ON_LOAD' }
@@ -97,10 +165,25 @@ export type AppAction =
       kind: ConfirmationPayload['kind']
       summary: string
       payload: ConfirmationPayload
+      now?: Instant
     }
-  | { type: 'APPROVE_CONFIRMATION'; id: string; persistSession?: boolean }
+  | { type: 'APPROVE_CONFIRMATION'; id: string; persistSession?: boolean; now?: Instant }
   | { type: 'DENY_CONFIRMATION'; id: string }
   | { type: 'CONSUME_CONFIRMATION'; id: string }
+  | SetResonanceAction
+
+export type ToolAction = Exclude<
+  AppAction,
+  | { type: 'APPROVE_CONFIRMATION'; id: string; persistSession?: boolean }
+  | { type: 'DENY_CONFIRMATION'; id: string }
+  | SetResonanceAction
+  | { type: 'GENERATE_FORECAST' }
+  | { type: 'SET_STEP_STATUS'; stepId: string; status: ChoiceStepStatus }
+  | { type: 'SET_STEP_NOTE'; stepId: string; userNote: string }
+  | { type: 'ADOPT_STAGED_PACKET'; confirmationId: ConfirmationId; now: Instant }
+  | { type: 'REQUEST_ADOPT_STAGED'; now: Instant }
+  | { type: 'CLEAR_SAVED_DATA' }
+>
 
 export function createCustomStepId(): string {
   return `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -145,7 +228,7 @@ export function canAdvance(state: AppState): boolean {
       )
     case 'cosmos':
     case 'contrast':
-      return currentForecast(state) !== null
+      return hasReadableCorpus(state)
     case 'choice':
       return true
     case 'continuity':
@@ -158,14 +241,45 @@ export function canAdvance(state: AppState): boolean {
 }
 
 export function appReducer(state: AppState, action: AppAction): AppState {
+  return reconcileBriefTicket(reduceApp(state, action))
+}
+
+function reduceApp(state: AppState, action: AppAction): AppState {
   switch (action.type) {
-    case 'SET_HORIZON':
-      return { ...state, horizon: action.horizon }
+    case 'SET_HORIZON': {
+      if (state.horizon === action.horizon) {
+        return state
+      }
+      return {
+        ...withDesk(state, clearStaged(state.desk)),
+        horizon: action.horizon,
+        intake: EMPTY_INTAKE,
+      }
+    }
     case 'SET_PROFILE_FIELD':
       return {
         ...state,
         profile: { ...state.profile, [action.field]: action.value },
       }
+    case 'SET_BELIEFS': {
+      const beliefs = parseModularProfile(action.beliefs)
+      if (beliefs === null) {
+        return state
+      }
+      const next = {
+        ...state,
+        profile: { ...state.profile, beliefs },
+        readingsByHorizon: admitReadings(state.readingsByHorizon, beliefs),
+      }
+      const staged = state.desk.staged
+      if (staged !== null && !sectionsAdmissible(staged.packet.sections, beliefs)) {
+        return {
+          ...withDesk(next, clearStaged(state.desk)),
+          intake: EMPTY_INTAKE,
+        }
+      }
+      return next
+    }
     case 'GENERATE_FORECAST':
       return seedForecast(state, 'regenerate')
     case 'ADVANCE':
@@ -184,7 +298,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         ...plan,
         steps: plan.steps.map((step) =>
           step.id === action.stepId
-            ? { ...step, userNote: action.userNote }
+            ? { ...step, userNote: clipPlanNote(action.userNote) }
             : step,
         ),
       }))
@@ -201,11 +315,88 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         horizon: action.session.horizon,
         profile: action.session.profile,
         forecastsByHorizon: action.session.forecastsByHorizon,
+        readingsByHorizon: admitReadings(
+          action.session.readingsByHorizon,
+          action.session.profile.beliefs,
+        ),
+        resonanceByHorizon: action.session.resonanceByHorizon,
         plansByHorizon: action.session.plansByHorizon,
         persistence: { kind: 'saved', savedAt: action.session.savedAt },
         confirmation: IDLE_CONFIRMATION,
+        desk: EMPTY_DESK,
+        intake: EMPTY_INTAKE,
         externalShare: NO_SHARE,
       }
+    case 'INTAKE_BEGIN':
+      return applyIntakeAction(state, { op: 'begin', horizon: action.horizon })
+    case 'INTAKE_APPEND_SOURCES':
+      return applyIntakeAction(state, {
+        op: 'append_sources',
+        sources: action.sources,
+      })
+    case 'INTAKE_APPEND_SECTIONS':
+      return applyIntakeAction(state, {
+        op: 'append_sections',
+        sections: action.sections,
+      })
+    case 'INTAKE_FINALIZE':
+      return applyIntakeAction(state, { op: 'finalize' })
+    case 'INTAKE_IMPORT_JSON':
+      return applyIntakeAction(
+        state,
+        { op: 'import_json', text: action.text },
+        action.now,
+      )
+    case 'INTAKE_CANCEL': {
+      const cancelled = applyIntake(state.intake, { op: 'cancel' }, {
+        beliefs: state.profile.beliefs,
+      })
+      return {
+        ...withDesk(state, clearStaged(state.desk)),
+        intake: cancelled.intake,
+      }
+    }
+    case 'REQUEST_ADOPT_STAGED':
+      return requestAdoptStaged(state, action.now)
+    case 'STAGE_PACKET': {
+      const admission = admitPacket(action.packet, {
+        beliefs: state.profile.beliefs,
+      })
+      if (admission.status === 'blocked') {
+        return state
+      }
+      const next = stagePacket(state.desk, admission.packet, { now: action.now })
+      if (next === null) {
+        return state
+      }
+      return {
+        ...withDesk(state, next),
+        intake: {
+          status: 'ready',
+          packet: admission.packet,
+          review: admission.review,
+        },
+      }
+    }
+    case 'ADOPT_STAGED_PACKET': {
+      const result = adoptStagedPacket(state.desk, {
+        confirmationId: action.confirmationId,
+        now: action.now,
+        beliefs: state.profile.beliefs,
+      })
+      if (result === null) {
+        return state
+      }
+      const spent = consumeTicket(result.desk, action.confirmationId)
+      return {
+        ...withDesk(state, spent ?? result.desk),
+        readingsByHorizon: {
+          ...state.readingsByHorizon,
+          [result.artifact.horizon]: result.artifact,
+        },
+        intake: { status: 'adopted', digest: result.artifact.packetDigest },
+      }
+    }
     case 'PERSISTENCE_UNAVAILABLE':
       return { ...state, persistence: { kind: 'unavailable', reason: action.reason } }
     case 'PERSISTENCE_UNDECIDED':
@@ -271,23 +462,32 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       }
     case 'ADD_CUSTOM_STEP': {
       const title = action.title.trim()
-      if (title.length === 0 || action.stepId.trim().length === 0) {
+      if (
+        title.length === 0 ||
+        title.length > PLAN_BOUNDS.maxTitleLength ||
+        action.stepId.trim().length === 0
+      ) {
         return state
       }
-      return updateCurrentPlan(state, (plan) => ({
-        ...plan,
-        steps: [
-          ...plan.steps,
-          {
-            id: action.stepId,
-            title,
-            rationale: '',
-            status: 'proposed',
-            userNote: action.userNote.trim(),
-            origin: 'custom',
-          },
-        ],
-      }))
+      return updateCurrentPlan(state, (plan) => {
+        if (plan.steps.length >= PLAN_BOUNDS.maxStepsPerPlan) {
+          return plan
+        }
+        return {
+          ...plan,
+          steps: [
+            ...plan.steps,
+            {
+              id: action.stepId,
+              title,
+              rationale: '',
+              status: 'proposed',
+              userNote: clipPlanNote(action.userNote),
+              origin: 'custom',
+            },
+          ],
+        }
+      })
     }
     case 'REMOVE_CUSTOM_STEP':
       return updateCurrentPlan(state, (plan) => ({
@@ -301,15 +501,133 @@ export function appReducer(state: AppState, action: AppAction): AppState {
     case 'REQUEST_CONFIRMATION':
       return requestConfirmation(state, action)
     case 'APPROVE_CONFIRMATION':
-      return approveConfirmation(state, action.id, action.persistSession === true)
+      return approveConfirmation(
+        state,
+        action.id,
+        action.persistSession === true,
+        action.now,
+      )
     case 'DENY_CONFIRMATION':
       return denyConfirmation(state, action.id)
     case 'CONSUME_CONFIRMATION':
       return consumeConfirmation(state, action.id)
+    case 'SET_RESONANCE':
+      return applySetResonance(state, action)
     default: {
       const _exhaustive: never = action
       return _exhaustive
     }
+  }
+}
+
+function withDesk(state: AppState, desk: AppState['desk']): AppState {
+  return {
+    ...state,
+    desk,
+    confirmation: confirmationView(desk),
+  }
+}
+
+function reconcileBriefTicket(state: AppState): AppState {
+  const ticket = state.desk.ticket
+  if (ticket.status !== 'pending' && ticket.status !== 'approved') {
+    return state
+  }
+  if (ticket.payload.kind !== 'research_brief') {
+    return state
+  }
+  if (liveBriefDigest(state) === ticket.payload.briefDigest) {
+    return state
+  }
+  return withDesk(state, { ...state.desk, ticket: { status: 'idle' } })
+}
+
+function applyIntakeAction(
+  state: AppState,
+  command: IntakeCommand,
+  now?: Instant,
+): AppState {
+  const result = applyIntake(state.intake, command, {
+    beliefs: state.profile.beliefs,
+  })
+  if (result.packet === null) {
+    return { ...state, intake: result.intake }
+  }
+  const staged = stagePacket(state.desk, result.packet, {
+    now: now ?? mustInstant(Date.now()),
+  })
+  if (staged === null) {
+    return { ...state, intake: result.intake }
+  }
+  return {
+    ...withDesk(state, staged),
+    intake: result.intake,
+  }
+}
+
+function requestAdoptStaged(state: AppState, now: Instant): AppState {
+  const staged = state.desk.staged
+  if (staged === null) {
+    return {
+      ...state,
+      intake: {
+        status: 'rejected',
+        code: 'malformed',
+        reason: 'There is no reviewed packet to adopt.',
+      },
+    }
+  }
+  if (now >= staged.expiresAt) {
+    return {
+      ...withDesk(state, clearStaged(state.desk)),
+      intake: {
+        status: 'rejected',
+        code: 'expired',
+        reason: 'This staged packet expired after 30 minutes and was not adopted.',
+      },
+    }
+  }
+  return requestConfirmation(state, {
+    kind: 'adopt_reading',
+    summary:
+      'Adopt this reading packet onto the page. It stays a review until you approve. It is not an exhaustive search.',
+    payload: {
+      kind: 'adopt_reading',
+      packetDigest: staged.digest,
+      horizon: staged.packet.horizon,
+    },
+    now,
+  })
+}
+
+function adoptAfterApproval(
+  state: AppState,
+  confirmationId: string,
+  now: Instant,
+): AppState {
+  const result = adoptStagedPacket(state.desk, {
+    confirmationId: confirmationId as ConfirmationId,
+    now,
+    beliefs: state.profile.beliefs,
+  })
+  if (result === null) {
+    return {
+      ...state,
+      intake: {
+        status: 'rejected',
+        code: 'expired',
+        reason: 'This packet could not be adopted. The confirmation may have expired or no longer match the staged packet.',
+      },
+    }
+  }
+  const spent = consumeTicket(result.desk, confirmationId as ConfirmationId)
+  return {
+    ...withDesk(state, spent ?? result.desk),
+    readingsByHorizon: {
+      ...state.readingsByHorizon,
+      [result.artifact.horizon]: result.artifact,
+    },
+    intake: { status: 'adopted', digest: result.artifact.packetDigest },
   }
 }
 
@@ -323,74 +641,83 @@ function requestConfirmation(
     kind: ConfirmationPayload['kind']
     summary: string
     payload: ConfirmationPayload
+    now?: Instant
   },
 ): AppState {
-  const id = confirmationIdFor(action.kind)
-  const current = state.confirmation
-  if (current.status !== 'idle') {
+  const issued = issueConfirmation(state.desk, {
+    payload: action.payload,
+    summary: action.summary,
+    now: action.now ?? mustInstant(Date.now()),
+  })
+  if (issued === null) {
     return state
   }
-
-  return {
-    ...state,
-    confirmation: {
-      status: 'pending',
-      id,
-      kind: action.kind,
-      summary: action.summary,
-      payload: action.payload,
-    },
-  }
+  return withDesk(state, issued.desk)
 }
 
 function approveConfirmation(
   state: AppState,
   id: string,
   persistSession: boolean,
+  now?: Instant,
 ): AppState {
-  const current = state.confirmation
-  if (current.status !== 'pending' || current.id !== id) {
+  const nextDesk = approveTicket(
+    state.desk,
+    id as ConfirmationId,
+    now ?? mustInstant(Date.now()),
+  )
+  if (nextDesk === null) {
     return state
   }
-
-  const approved = {
-    status: 'approved' as const,
-    id: current.id,
-    kind: current.kind,
-    payload: current.payload,
+  const next = withDesk(state, nextDesk)
+  const current = next.confirmation
+  if (current.status !== 'approved') {
+    return next
   }
 
   switch (current.payload.kind) {
     case 'personal_data_access':
-      return { ...state, confirmation: approved }
-    case 'profile_update':
+    case 'research_brief':
+      return next
+    case 'adopt_reading':
+      return adoptAfterApproval(next, current.id, mustInstant(Date.now()))
+    case 'profile_update': {
+      const proposed = current.payload.proposed
+      const digestBound =
+        confirmationIdForPayload(current.payload) === (current.id as ConfirmationId)
       return {
-        ...state,
-        confirmation: approved,
-        profile: { ...state.profile, ...current.payload.proposed },
+        ...next,
+        profile: {
+          displayName: proposed.displayName ?? state.profile.displayName,
+          focusIntention: proposed.focusIntention ?? state.profile.focusIntention,
+          tone: proposed.tone ?? state.profile.tone,
+          beliefs:
+            digestBound && proposed.beliefs !== undefined
+              ? { ...state.profile.beliefs, ...proposed.beliefs }
+              : state.profile.beliefs,
+        },
       }
+    }
     case 'external_share':
       return {
-        ...state,
-        confirmation: approved,
+        ...next,
         externalShare: {
           kind: 'approved_not_sent',
-          destination: current.payload.destination,
           include: current.payload.include,
           reason:
-            'Sharing was approved and nothing left this device. Gemini research is not connected in this slice.',
+            'Sharing was approved and nothing left this device. Hosted research is not part of this preview.',
         },
       }
     case 'plan_save': {
-      const next = persistSession ? applyPlanSaveConsent(state) : state
+      const consented = persistSession ? applyPlanSaveConsent(next) : next
       const granted =
         persistSession &&
-        next.persistence.kind === 'saving' &&
+        consented.persistence.kind === 'saving' &&
         state.persistence.kind !== 'saving'
       return {
-        ...next,
+        ...consented,
         confirmation: {
-          ...approved,
+          ...current,
           sessionPersist: granted ? 'granted' : 'unchanged',
         },
       }
@@ -403,34 +730,27 @@ function approveConfirmation(
 }
 
 function denyConfirmation(state: AppState, id: string): AppState {
-  const current = state.confirmation
-  if (current.status !== 'pending' || current.id !== id) {
+  const nextDesk = denyTicket(state.desk, id as ConfirmationId)
+  if (nextDesk === null) {
     return state
   }
-
-  if (current.kind === 'external_share') {
-    return {
-      ...state,
-      confirmation: { status: 'denied', id: current.id, kind: current.kind },
-      externalShare: { kind: 'denied', destination: 'gemini-research' },
-    }
+  const next = withDesk(state, nextDesk)
+  if (state.desk.ticket.status === 'pending' && state.desk.ticket.payload.kind === 'external_share') {
+    return { ...next, externalShare: { kind: 'denied' } }
   }
-
-  return {
-    ...state,
-    confirmation: { status: 'denied', id: current.id, kind: current.kind },
+  if (state.desk.ticket.status === 'pending' && state.desk.ticket.payload.kind === 'adopt_reading') {
+    const spent = consumeTicket(nextDesk, id as ConfirmationId)
+    return spent === null ? next : withDesk(next, spent)
   }
+  return next
 }
 
 function consumeConfirmation(state: AppState, id: string): AppState {
-  const current = state.confirmation
-  if (
-    (current.status !== 'approved' && current.status !== 'denied') ||
-    current.id !== id
-  ) {
+  const nextDesk = consumeTicket(state.desk, id as ConfirmationId)
+  if (nextDesk === null) {
     return state
   }
-  return { ...state, confirmation: IDLE_CONFIRMATION }
+  return withDesk(state, nextDesk)
 }
 
 function applyPlanSaveConsent(state: AppState): AppState {
@@ -463,7 +783,39 @@ function applySaveCallback(
   if (state.persistence.kind === 'held') {
     return state
   }
+  if (
+    state.persistence.kind === 'error' &&
+    (state.persistence.operation === 'erase' ||
+      state.persistence.operation === 'decline')
+  ) {
+    return state
+  }
   return { ...state, persistence }
+}
+
+function clipPlanNote(note: string): string {
+  return note.trim().slice(0, PLAN_BOUNDS.maxUserNoteLength)
+}
+
+function admitReadings(
+  readings: Record<HorizonId, ReadingArtifact | null>,
+  beliefs: ModularBeliefs,
+): Record<HorizonId, ReadingArtifact | null> {
+  return {
+    daily: admitReading(readings.daily, beliefs),
+    weekly: admitReading(readings.weekly, beliefs),
+    yearly: admitReading(readings.yearly, beliefs),
+  }
+}
+
+function admitReading(
+  artifact: ReadingArtifact | null,
+  beliefs: ModularBeliefs,
+): ReadingArtifact | null {
+  if (artifact === null || !sectionsAdmissible(artifact.sections, beliefs)) {
+    return null
+  }
+  return artifact
 }
 
 function persistOnRestart(persistence: PersistenceStatus): PersistenceStatus {
@@ -516,7 +868,10 @@ function seedForecast(
     return state
   }
 
-  const forecast = generateForecast(state.profile, state.horizon)
+  const forecast = generateForecast(
+    fixtureDerivedProfile(state.profile),
+    state.horizon,
+  )
   const existingPlan = state.plansByHorizon[state.horizon]
   const customSteps =
     existingPlan === null
@@ -573,5 +928,29 @@ function advance(state: AppState): AppState {
     return { ...seedForecast(state, 'reopen'), phase }
   }
 
+  if (phase === 'choice' && currentPlan(state) === null) {
+    return {
+      ...state,
+      phase,
+      plansByHorizon: {
+        ...state.plansByHorizon,
+        [state.horizon]: emptyChoicePlan(state),
+      },
+    }
+  }
+
   return { ...state, phase }
+}
+
+function emptyChoicePlan(state: AppState): ChoicePlanDraft {
+  const artifact = currentReading(state)
+  return {
+    horizon: state.horizon,
+    createdAt:
+      artifact !== null
+        ? new Date(artifact.adoptedAt).toISOString()
+        : new Date().toISOString(),
+    steps: [],
+    freeWillNote: FREE_WILL_NOTE,
+  }
 }

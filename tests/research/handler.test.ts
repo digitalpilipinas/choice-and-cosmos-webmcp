@@ -2,8 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { handleResearchRequest, MAX_RESEARCH_BODY_BYTES } from '../../server/research/handler.ts'
 import { GEMINI_INTERACTIONS_URL } from '../../server/research/gemini.ts'
-
-const TEST_KEY = 'sk-test-gemini-not-real-xyz'
+import { liveDeps, samplePersonalized, TEST_KEY } from './helpers.ts'
 
 function post(body: unknown, signal?: AbortSignal): Request {
   return new Request('http://choice.local/research', {
@@ -111,10 +110,26 @@ describe('research handler', () => {
     expect(cancelled).toBe(true)
   })
 
-  it('returns fixture evidence without credentials', async () => {
+  it('rejects a missing JSON content type', async () => {
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', {
+        method: 'POST',
+        body: JSON.stringify({ horizon: 'daily', query: 'stay with the draft' }),
+      }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Content-Type must be application/json.',
+    })
+  })
+
+  it('returns fixture evidence only for explicit fixture mode', async () => {
     const fetchImpl = vi.fn()
     const response = await handleResearchRequest(
-      post({ horizon: 'weekly', query: 'protect one block of attention' }),
+      post({ horizon: 'weekly', query: 'protect one block of attention', mode: 'fixture' }),
       { env: {}, fetchImpl },
     )
     expect(response.status).toBe(200)
@@ -126,6 +141,24 @@ describe('research handler', () => {
     expect(body.outcome).toBe('ready')
     expect(body.coverage.mode).toBe('fixture')
     expect(body.coverage.exhaustive).toBe(false)
+  })
+
+  it('fails closed for auto mode when live research is disabled', async () => {
+    const fetchImpl = vi.fn()
+    const response = await handleResearchRequest(
+      post({ horizon: 'weekly', query: 'protect one block of attention' }),
+      { env: {}, fetchImpl },
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string }
+      reason: string
+    }
+    expect(body.outcome).toBe('unavailable')
+    expect(body.coverage.mode).toBe('gemini')
+    expect(body.reason).toMatch(/disabled/i)
   })
 
   it('returns handler_error when the clock fails after validation', async () => {
@@ -152,6 +185,53 @@ describe('research handler', () => {
     expect(body.reason).not.toContain('clock exploded')
   })
 
+  it('returns a V2 invalid_input bundle when schemaVersion 2 parse fails', async () => {
+    const response = await handleResearchRequest(
+      post({ schemaVersion: 2, mode: 'auto' }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as {
+      schemaVersion?: number
+      status?: string
+      outcome?: string
+      code?: string
+      coverage?: { mode?: string }
+    }
+    expect(body.schemaVersion).toBe(2)
+    expect(body.status).toBe('invalid_input')
+    expect(body.outcome).toBeUndefined()
+    expect(body.code).toBeUndefined()
+    expect(body.coverage?.mode).not.toBe('gemini')
+  })
+
+  it('returns a V2 unavailable bundle when the clock fails after a V2 parse', async () => {
+    const response = await handleResearchRequest(post(samplePersonalized()), {
+      env: {},
+      now: () => {
+        throw new Error('clock exploded')
+      },
+    })
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as {
+      schemaVersion?: number
+      status?: string
+      reason?: string
+      outcome?: string
+      code?: string
+      coverage?: { mode?: string }
+    }
+    expect(body.schemaVersion).toBe(2)
+    expect(body.status).toBe('unavailable')
+    expect(body.reason).toBe(
+      'The research handler failed before a research outcome could be produced.',
+    )
+    expect(body.outcome).toBeUndefined()
+    expect(body.code).toBeUndefined()
+    expect(body.coverage?.mode).not.toBe('gemini')
+    expect(JSON.stringify(body)).not.toContain('clock exploded')
+  })
+
   it('does not send Authorization or leak the test key', async () => {
     let capturedUrl = ''
     let capturedHeaders: Headers | undefined
@@ -167,7 +247,9 @@ describe('research handler', () => {
     })
     const response = await handleResearchRequest(
       post({ horizon: 'daily', query: 'stay with the draft' }),
-      { env: { GEMINI_API_KEY: TEST_KEY }, fetchImpl: fetchImpl as typeof fetch },
+      {
+        ...liveDeps({ fetchImpl: fetchImpl as typeof fetch }),
+      },
     )
     expect(fetchImpl).toHaveBeenCalledTimes(1)
     expect(capturedUrl).toBe(GEMINI_INTERACTIONS_URL)

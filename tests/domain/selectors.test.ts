@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   COVERAGE_LEVEL_COPY,
   coverageLevel,
+  currentHorizonView,
   evidenceForSection,
   forecastCockpit,
   hasPersistenceConsent,
@@ -10,10 +11,12 @@ import {
   sectionsCitingEvidence,
   uncertaintyFor,
 } from '../../src/domain/selectors.ts'
+import { INITIAL_STATE } from '../../src/domain/loop.ts'
 import { HORIZON_BY_ID } from '../../src/fixtures/horizons.ts'
 import type {
+  ContextProfile,
   CoverageSummary,
-  DerivedProfile,
+  PersonProfile,
   EvidenceItem,
   ForecastFixture,
   ForecastSource,
@@ -21,10 +24,11 @@ import type {
   ReportSection,
 } from '../../src/domain/types.ts'
 
-const profile: DerivedProfile = {
+const profile: PersonProfile = {
   displayName: 'You',
   focusIntention: 'finish the draft',
   tone: 'grounded',
+  beliefs: {},
 }
 
 function coverage(
@@ -94,6 +98,27 @@ describe('profileUpdateDiff', () => {
         from: 'keep this private',
         to: 'a slower question',
       },
+      {
+        field: 'tone',
+        label: 'Tone',
+        from: 'grounded',
+        to: 'bold',
+      },
+    ])
+  })
+
+  it('does not include cosmic keys in the agent confirmation diff', () => {
+    const current = {
+      displayName: 'You',
+      focusIntention: 'keep this private',
+      tone: 'grounded' as const,
+      beliefs: { western: { sun: 'leo' as const } },
+    }
+    const proposed = {
+      tone: 'bold' as const,
+      cosmic: { sunSign: 'aries' as const },
+    } as unknown as Partial<ContextProfile>
+    expect(profileUpdateDiff(current, proposed)).toEqual([
       {
         field: 'tone',
         label: 'Tone',
@@ -286,5 +311,24 @@ describe('evidence mapping', () => {
       'westernAstrology',
     ])
     expect(sectionsCitingEvidence(mapped, 'uncited')).toEqual([])
+  })
+})
+
+describe('currentHorizonView', () => {
+  it('does not treat a legacy fixture as personalized', () => {
+    const fixture = forecast()
+    const state = {
+      ...INITIAL_STATE,
+      forecastsByHorizon: {
+        daily: fixture,
+        weekly: null,
+        yearly: null,
+      },
+    }
+    expect(currentHorizonView(state)).toEqual({
+      artifact: null,
+      fixture,
+      personalized: false,
+    })
   })
 })

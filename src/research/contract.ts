@@ -1,13 +1,15 @@
-import type { HorizonId } from '../domain/types.ts'
+import type { CosmicProfile } from '../domain/cosmic.ts'
+import type { HorizonId, ReportSectionId } from '../domain/types.ts'
 
 export type ResearchMode = 'auto' | 'fixture' | 'manual'
 
-export type ResearchProvider = 'gemini' | 'fixture' | 'manual'
+export type ResearchProvider = 'gemini' | 'fixture' | 'manual' | 'agent'
 
 export type ResearchMethod =
   | 'google_search'
   | 'local_fixture'
   | 'user_supplied_link'
+  | 'untrusted_submission'
 
 export type ResearchOutcomeKind =
   | 'ready'
@@ -24,12 +26,31 @@ export interface HorizonCaps {
   timeoutMs: number
 }
 
-export interface EvidenceProvenance {
-  provider: ResearchProvider
-  method: ResearchMethod
-  retrievedAt: string
-  query: string
-}
+export type EvidenceProvenance =
+  | {
+      provider: 'gemini'
+      method: 'google_search'
+      retrievedAt: string
+      query: string
+    }
+  | {
+      provider: 'fixture'
+      method: 'local_fixture'
+      retrievedAt: string
+      query: string
+    }
+  | {
+      provider: 'manual'
+      method: 'user_supplied_link'
+      retrievedAt: string
+      query: string
+    }
+  | {
+      provider: 'agent'
+      method: 'untrusted_submission'
+      query: string
+      retrievedAt?: never
+    }
 
 export interface ResearchSource {
   id: string
@@ -121,3 +142,68 @@ export const RESEARCH_OUTCOMES = [
 
 /** Same-origin mount. Worker and client share this string. */
 export const RESEARCH_API_PATH = '/api/research'
+
+export const RESEARCH_BRIEF_SCHEMA_VERSION = 2
+export const RESEARCH_BUNDLE_SCHEMA_VERSION = 2
+
+export const RESEARCH_STATUSES = [
+  'ready',
+  'partial',
+  'unavailable',
+  'disabled',
+  'cancelled',
+  'timed_out',
+  'quota_exceeded',
+  'provider_error',
+  'invalid_provider_output',
+  'invalid_input',
+] as const
+
+export type ResearchStatus = (typeof RESEARCH_STATUSES)[number]
+
+export interface ResearchBrief {
+  schemaVersion: 2
+  horizon: HorizonId
+  focus: string
+  tone: 'grounded' | 'curious' | 'bold'
+  cosmic: CosmicProfile
+  requestedLenses: ReportSectionId[]
+}
+
+export interface GroundedClaim {
+  id: string
+  lens: ReportSectionId
+  text: string
+  sourceIds: [string, ...string[]]
+}
+
+export interface SkippedLens {
+  lens: ReportSectionId
+  reason: string
+}
+
+export interface PersonalizedRequest {
+  schemaVersion: 2
+  mode: ResearchMode
+  brief: ResearchBrief
+  manualUrls: string[]
+}
+
+interface BundleFields {
+  schemaVersion: 2
+  brief: ResearchBrief | null
+  sources: ResearchSource[]
+  claims: GroundedClaim[]
+  skippedLenses: SkippedLens[]
+  coverage: ResearchCoverage
+  untrustedText: string
+  adopted: false
+}
+
+export type PersonalizedResearchBundle =
+  | (BundleFields & { status: 'ready' })
+  | (BundleFields & { status: 'partial'; reason: string })
+  | (BundleFields & {
+      status: Exclude<ResearchStatus, 'ready' | 'partial'>
+      reason: string
+    })

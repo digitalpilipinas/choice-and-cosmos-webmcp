@@ -4,22 +4,22 @@ import type { HorizonCaps } from './contract.ts'
 
 export const HORIZON_CAPS: Record<HorizonId, HorizonCaps> = {
   daily: {
-    maxSources: 4,
-    maxQueries: 3,
-    maxNovelDomains: 3,
-    timeoutMs: 12_000,
-  },
-  weekly: {
-    maxSources: 5,
+    maxSources: 12,
     maxQueries: 4,
     maxNovelDomains: 4,
-    timeoutMs: 15_000,
+    timeoutMs: 20_000,
+  },
+  weekly: {
+    maxSources: 24,
+    maxQueries: 6,
+    maxNovelDomains: 8,
+    timeoutMs: 30_000,
   },
   yearly: {
-    maxSources: 6,
-    maxQueries: 4,
-    maxNovelDomains: 5,
-    timeoutMs: 18_000,
+    maxSources: 36,
+    maxQueries: 8,
+    maxNovelDomains: 12,
+    timeoutMs: 45_000,
   },
 }
 

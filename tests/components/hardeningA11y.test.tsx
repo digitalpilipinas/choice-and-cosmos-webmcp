@@ -28,7 +28,7 @@ describe('P5 hardening a11y', () => {
   it('keeps unique evidence heading ids and free-will copy on Cosmos', async () => {
     const user = userEvent.setup()
     const forecast = generateForecast(
-      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded' },
+      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded', cosmic: {} },
       'daily',
     )
     render(<App />)

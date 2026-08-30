@@ -1,8 +1,3 @@
-import type { Dispatch } from 'react'
-import type { AppAction } from '../../domain/loop.ts'
-import type { AppState } from '../../domain/types.ts'
+import type { StudioPhaseProps } from '../../domain/studioView.ts'
 
-export interface PhaseProps {
-  state: AppState
-  dispatch: Dispatch<AppAction>
-}
+export type { StudioPhaseProps }
