@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { appReducer, INITIAL_STATE, type AppAction } from '../../src/domain/loop.ts'
+import {
+  appReducer,
+  confirmationIdForPayload,
+  INITIAL_STATE,
+  type AppAction,
+} from '../../src/domain/loop.ts'
 import type { AppState } from '../../src/domain/types.ts'
 import type { ModelContextTool } from '../../src/webmcp/detect.ts'
 import { registerCatalog } from '../../src/webmcp/host.ts'
@@ -134,5 +139,83 @@ describe('registered host execute', () => {
     ])
     expect(custom?.[0]?.id).toEqual(expect.any(String))
     expect(custom?.[0]?.id.length).toBeGreaterThan(0)
+  })
+
+  it('does not apply a profile update until the person dispatches approval', async () => {
+    const focused = appReducer(INITIAL_STATE, {
+      type: 'SET_PROFILE_FIELD',
+      field: 'focusIntention',
+      value: 'keep the draft honest overnight',
+    })
+    const existing = appReducer(focused, {
+      type: 'SET_BELIEFS',
+      beliefs: { western: { sun: 'leo' } },
+    })
+    const host = createReducerHost(existing)
+    const registered = new Map<string, ModelContextTool>()
+    await registerCatalog(
+      {
+        registerTool: async (tool) => {
+          registered.set(tool.name, tool)
+        },
+      },
+      host,
+    )
+    const propose = registered.get('propose_profile_update')
+    const status = registered.get('get_session_status')
+    if (propose === undefined || status === undefined) {
+      throw new Error('expected profile-update tools')
+    }
+
+    const proposed = {
+      focusIntention: 'a slower question',
+      tone: 'bold' as const,
+      beliefs: { western: { sun: 'virgo' as const } },
+    }
+    const confirmationId = confirmationIdForPayload({
+      kind: 'profile_update',
+      proposed,
+    })
+    const snapshot = structuredClone(host.getState().profile)
+
+    const first = await propose.execute(proposed)
+    expect(first).toMatchObject({
+      ok: false,
+      code: 'needs_confirmation',
+      kind: 'profile_update',
+      confirmationId,
+    })
+    expect(host.getState().profile).toEqual(snapshot)
+    expect(host.getState().confirmation).toMatchObject({
+      status: 'pending',
+      kind: 'profile_update',
+      id: confirmationId,
+    })
+    expect(await status.execute({})).toMatchObject({
+      ok: true,
+      data: { confirmation: { status: 'pending', kind: 'profile_update' } },
+    })
+
+    const replayPending = await propose.execute({ ...proposed, confirmationId })
+    expect(replayPending).toMatchObject({
+      ok: false,
+      code: 'needs_confirmation',
+    })
+    expect(host.getState().profile).toEqual(snapshot)
+
+    host.dispatch({ type: 'APPROVE_CONFIRMATION', id: confirmationId })
+    expect(host.getState().profile).toMatchObject({
+      focusIntention: 'a slower question',
+      tone: 'bold',
+      beliefs: { western: { sun: 'virgo' } },
+    })
+    expect(host.getState().confirmation.status).toBe('approved')
+
+    const consumed = await propose.execute({ ...proposed, confirmationId })
+    expect(consumed).toEqual({ ok: true, data: proposed })
+    expect(host.getState().confirmation.status).toBe('idle')
+
+    const stale = await propose.execute({ ...proposed, confirmationId })
+    expect(stale).toMatchObject({ ok: false, code: 'unknown_confirmation' })
   })
 })

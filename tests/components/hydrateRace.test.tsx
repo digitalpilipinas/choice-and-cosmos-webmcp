@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { FREE_WILL_NOTE, fixtureDerivedProfile } from '../../src/domain/loop.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { getItem } from '../../src/persistence/db.ts'
@@ -202,6 +203,7 @@ describe('delayed persistence hydrate', () => {
     await waitFor(() => {
       expect(registered.size).toBe(TOOL_NAMES.length)
     })
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     expect(await screen.findByRole('heading', { name: 'Cosmos' })).toBeInTheDocument()
 

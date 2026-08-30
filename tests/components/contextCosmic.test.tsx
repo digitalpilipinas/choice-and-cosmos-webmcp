@@ -16,7 +16,7 @@ describe('Context cosmic fields', () => {
     cleanup()
   })
 
-  it('sets and clears sun sign, leaves omitted fields empty, and advances with focus only', async () => {
+  it('sets and clears sun sign behind the western lens, leaves omitted fields empty, and advances with focus plus a module', async () => {
     const user = userEvent.setup()
     render(<App />)
 
@@ -27,14 +27,21 @@ describe('Context cosmic fields', () => {
       screen.getByText(/never infers optional signs or numbers/i),
     ).toBeInTheDocument()
     expect(document.querySelector('input[type="date"]')).toBeNull()
-    expect(screen.queryByLabelText(/birth/i)).not.toBeInTheDocument()
+    expect(document.querySelector('input[type="time"]')).toBeNull()
+    expect(
+      screen.queryByRole('textbox', { name: /birth date|birth time|birth location/i }),
+    ).not.toBeInTheDocument()
     expect(
       await screen.findByText(/any self-supplied belief-system fields you entered/i),
     ).toBeInTheDocument()
     expect(
       screen.getByText(/only in this browser profile/i),
     ).toBeInTheDocument()
+    expect(screen.queryByText('Optional cosmic details')).not.toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Sun sign' })).not.toBeInTheDocument()
 
+    await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await user.click(screen.getByRole('checkbox', { name: /western astrology/i }))
     const sun = screen.getByRole('group', { name: 'Sun sign' })
     const sunNotProvided = within(sun).getByRole('radio', {
       name: 'Not provided',
@@ -50,20 +57,13 @@ describe('Context cosmic fields', () => {
     expect(sunNotProvided).toBeChecked()
     expect(within(sun).getByRole('radio', { name: 'Leo' })).not.toBeChecked()
 
-    const detailsSummary = screen.getByText('Optional cosmic details')
-    const details = detailsSummary.closest('details')
-    expect(details).not.toBeNull()
-    if (details === null) {
-      throw new Error('expected optional cosmic details')
-    }
-    await user.click(detailsSummary)
-    const moon = within(details).getByRole('group', { name: 'Moon sign' })
+    const moon = screen.getByRole('group', { name: 'Moon sign' })
     expect(
       within(moon).getByRole('radio', { name: 'Not provided' }),
     ).toBeChecked()
     expect(within(moon).getByRole('radio', { name: 'Leo' })).not.toBeChecked()
 
-    await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await user.click(within(sun).getByRole('radio', { name: 'Leo' }))
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
     expect(screen.getByText(LIVE_RESEARCH_NOTICE)).toBeInTheDocument()

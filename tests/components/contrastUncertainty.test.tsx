@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import {
   COVERAGE_LEVEL_COPY,
   coverageLevel,
@@ -33,6 +34,7 @@ describe('contrast uncertainty', () => {
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
     )
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await user.click(screen.getByRole('button', { name: 'See the contrast' }))
 
@@ -46,6 +48,7 @@ describe('contrast uncertainty', () => {
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
     )
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await user.click(screen.getByRole('button', { name: 'See the contrast' }))
 

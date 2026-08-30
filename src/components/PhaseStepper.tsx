@@ -4,7 +4,7 @@ import type { PhaseId } from '../domain/types.ts'
 const PHASE_COPY: Record<PhaseId, { name: string; description: string }> = {
   context: {
     name: 'Context',
-    description: 'Intention and horizon',
+    description: 'Intention, horizon, and belief-system lenses',
   },
   cosmos: {
     name: 'Cosmos',

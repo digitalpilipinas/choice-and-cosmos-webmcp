@@ -123,12 +123,25 @@ function PendingConfirm({
   const approveRef = useRef<HTMLButtonElement>(null)
   const restoreFocusRef = useRef<HTMLElement | null>(null)
   const onDenyRef = useRef(onDeny)
+  const armedRef = useRef(false)
+  const pointerOnApproveRef = useRef(false)
+  const keyOnApproveRef = useRef(false)
   const titleId = `confirm-title-${confirmation.id}`
   const descriptionId = `confirm-desc-${confirmation.id}`
 
   useLayoutEffect(() => {
     onDenyRef.current = onDeny
   })
+
+  useLayoutEffect(() => {
+    armedRef.current = false
+    pointerOnApproveRef.current = false
+    keyOnApproveRef.current = false
+    const timer = window.setTimeout(() => {
+      armedRef.current = true
+    }, 0)
+    return () => window.clearTimeout(timer)
+  }, [confirmation.id])
 
   useLayoutEffect(() => {
     const node = dialogRef.current
@@ -261,7 +274,27 @@ function PendingConfirm({
           ref={approveRef}
           type="button"
           className="primary"
-          onClick={() => onApprove(confirmation.id, offerPersist && persistSession)}
+          onPointerDown={() => {
+            pointerOnApproveRef.current = true
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              keyOnApproveRef.current = true
+            }
+          }}
+          onClick={() => {
+            if (!armedRef.current) {
+              return
+            }
+            const fromPointer = pointerOnApproveRef.current
+            const fromKey = keyOnApproveRef.current
+            pointerOnApproveRef.current = false
+            keyOnApproveRef.current = false
+            if (!fromPointer && !fromKey) {
+              return
+            }
+            onApprove(confirmation.id, offerPersist && persistSession)
+          }}
         >
           Approve this request
         </button>

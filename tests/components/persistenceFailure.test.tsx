@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 
 vi.mock('../../src/persistence/sessionStore.ts', async (importOriginal) => {
   const actual = await importOriginal<
@@ -66,6 +67,7 @@ describe('persistence decline and erase failures', () => {
 
     await screen.findByRole('button', { name: 'Save on this device' })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Save on this device' }))
     await screen.findByText(/Saved on this device/)
 

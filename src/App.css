@@ -277,6 +277,133 @@
   color: var(--heading);
 }
 
+.context-welcome {
+  margin: 0 0 1.25rem;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-card);
+}
+
+.context-welcome h3,
+.context-welcome summary {
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  color: var(--heading);
+  margin: 0 0 0.55rem;
+  font-weight: 650;
+}
+
+.context-welcome summary {
+  cursor: pointer;
+}
+
+.context-welcome p {
+  margin: 0 0 0.65rem;
+  max-width: 42rem;
+}
+
+.context-welcome p:last-child {
+  margin-bottom: 0;
+}
+
+.lens-catalog {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.25rem;
+  padding: 0;
+  border: 0;
+}
+
+.lens-catalog legend {
+  padding: 0;
+  margin-bottom: 0.55rem;
+  font-weight: 650;
+  color: var(--heading);
+}
+
+.lens-catalog > p {
+  margin: 0;
+  max-width: 42rem;
+}
+
+.lens-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-card);
+  overflow: hidden;
+  transition:
+    transform var(--studio-fast) ease,
+    opacity var(--studio-mid) ease;
+}
+
+.lens-card.is-selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  background: var(--accent-dim);
+}
+
+.lens-card-head {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+  cursor: pointer;
+  padding: 0.9rem 0.85rem;
+}
+
+.lens-card-head input[type="checkbox"] {
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0.2rem 0 0;
+  flex-shrink: 0;
+  accent-color: var(--accent);
+}
+
+.lens-card-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.lens-card-action {
+  font-weight: 650;
+  color: var(--accent);
+  font-size: 0.88rem;
+}
+
+.lens-card-fields {
+  display: grid;
+  gap: 0.85rem;
+  padding: 0 0.85rem 0.95rem;
+  animation: lens-fields-in var(--studio-mid) ease;
+}
+
+.lens-card-fields .picker-row {
+  margin: 0;
+}
+
+.picker-dense {
+  grid-template-columns: repeat(auto-fill, minmax(3.4rem, 1fr));
+}
+
+.lens-summary {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+@keyframes lens-fields-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -903,6 +1030,10 @@ button.restart {
   .picker-grid,
   .picker-row {
     grid-template-columns: 1fr;
+  }
+
+  .picker-row.picker-dense {
+    grid-template-columns: repeat(auto-fill, minmax(3.4rem, 1fr));
   }
 
   .wizard-nav {

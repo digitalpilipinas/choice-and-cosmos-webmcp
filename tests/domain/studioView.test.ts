@@ -444,6 +444,49 @@ describe('studioView', () => {
     expect(marked.resonanceByHorizon.daily?.westernAstrology).toBe('resonates')
   })
 
+  it('disables context continue until focus and a belief module are present', () => {
+    const empty = studioView(INITIAL_STATE)
+    expect(empty.shell.continueEnabled).toBe(false)
+    expect(empty.shell.emptyAdvanceHint).toMatch(
+      /focus intention and select a lens with at least one self-supplied value/i,
+    )
+    expect(empty.shell.emptyAdvanceHint).toMatch(/horizon is already chosen/i)
+
+    const focusOnly = studioView({
+      ...INITIAL_STATE,
+      profile: {
+        ...INITIAL_STATE.profile,
+        focusIntention: 'finish the draft',
+      },
+    })
+    expect(focusOnly.shell.continueEnabled).toBe(false)
+    expect(focusOnly.shell.emptyAdvanceHint).toMatch(
+      /^Select a lens and enter at least one self-supplied value/i,
+    )
+    expect(focusOnly.shell.emptyAdvanceHint).not.toMatch(/Write a focus intention and/i)
+
+    const moduleOnly = studioView({
+      ...INITIAL_STATE,
+      profile: {
+        ...INITIAL_STATE.profile,
+        beliefs: { western: { moon: 'leo' } },
+      },
+    })
+    expect(moduleOnly.shell.continueEnabled).toBe(false)
+    expect(moduleOnly.shell.emptyAdvanceHint).toMatch(/^Write a focus intention to continue/i)
+
+    const ready = studioView({
+      ...INITIAL_STATE,
+      profile: {
+        ...INITIAL_STATE.profile,
+        focusIntention: 'finish the draft',
+        beliefs: { numerology: { lifePath: 7 } },
+      },
+    })
+    expect(ready.shell.continueEnabled).toBe(true)
+    expect(ready.shell.emptyAdvanceHint).toBeNull()
+  })
+
   it('sets print and calendar unavailable when the corpus is a fixture', () => {
     const forecast = generateForecast(
       {

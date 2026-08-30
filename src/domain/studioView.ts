@@ -11,7 +11,7 @@ import {
 import { ICS_EVENT_CAPS } from './bounds.ts'
 import type { PacketDigest } from './brand.ts'
 import { CHINESE_ELEMENTS } from './cosmic.ts'
-import type { ElementCounts } from './profile.ts'
+import { hasBeliefModule, type ElementCounts } from './profile.ts'
 import { fixtureHash } from '../fixtures/generateForecast.ts'
 import { HORIZON_BY_ID } from '../fixtures/horizons.ts'
 import {
@@ -426,7 +426,7 @@ export function studioView(state: AppState): StudioView {
         reading.status === 'ready',
       emptyAdvanceHint:
         state.phase === 'context' && !continueEnabled
-          ? 'Write a focus intention to continue. The horizon is already chosen.'
+          ? contextAdvanceHint(state)
           : null,
     },
     profile: state.profile,
@@ -458,6 +458,7 @@ function canContinue(state: AppState): boolean {
     case 'context':
       return (
         state.profile.focusIntention.trim().length > 0 &&
+        hasBeliefModule(state.profile.beliefs) &&
         isHorizonId(state.horizon)
       )
     case 'cosmos':
@@ -476,6 +477,21 @@ function canContinue(state: AppState): boolean {
 
 function isHorizonId(value: string): value is HorizonId {
   return value === 'daily' || value === 'weekly' || value === 'yearly'
+}
+
+function contextAdvanceHint(state: AppState): string {
+  const hasFocus = state.profile.focusIntention.trim().length > 0
+  const hasModule = hasBeliefModule(state.profile.beliefs)
+  if (!hasFocus && !hasModule) {
+    return 'Write a focus intention and select a lens with at least one self-supplied value to continue. The horizon is already chosen.'
+  }
+  if (!hasFocus) {
+    return 'Write a focus intention to continue. The horizon is already chosen.'
+  }
+  if (!hasModule) {
+    return 'Select a lens and enter at least one self-supplied value to continue. The horizon is already chosen.'
+  }
+  return 'Choose a horizon to continue.'
 }
 
 function readingFromCorpus(state: AppState, corpus: ReadingCorpus): StudioReading {

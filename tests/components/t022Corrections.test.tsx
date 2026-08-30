@@ -1,13 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cleanup, render, screen, within } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
 import { ResearchBriefPanel } from '../../src/components/research/ResearchBriefPanel.tsx'
 import { buildExactBrief } from '../../src/research/brief.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
+import { selectWesternSun } from './leaveContext.ts'
 
 const appCss = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), '../../src/App.css'),
@@ -66,9 +67,8 @@ describe('T022 evidence integrity and brief overflow', () => {
     const user = userEvent.setup()
     render(<App />)
 
-    const sun = screen.getByRole('group', { name: 'Sun sign' })
-    await user.click(within(sun).getByRole('radio', { name: 'Virgo' }))
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user, 'Virgo')
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
 

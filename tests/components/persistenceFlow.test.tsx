@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { getItem } from '../../src/persistence/db.ts'
 
 type SessionStore = typeof import('../../src/persistence/sessionStore.ts')
@@ -133,6 +134,7 @@ describe('persistence flow', { timeout: 25_000 }, () => {
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
     )
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
     await user.click(screen.getByRole('button', { name: 'Save on this device' }))
@@ -170,6 +172,7 @@ describe('persistence flow', { timeout: 25_000 }, () => {
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
     )
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     expect(screen.getByRole('heading', { name: 'Cosmos' })).toBeInTheDocument()
 
@@ -189,6 +192,7 @@ describe('persistence flow', { timeout: 25_000 }, () => {
 
     await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
     await user.click(screen.getByRole('button', { name: 'Save on this device' }))
@@ -256,6 +260,7 @@ describe('persistence flow', { timeout: 25_000 }, () => {
 
     await screen.findByRole('button', { name: 'Save on this device' }, { timeout: 4000 })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
     await user.click(screen.getByRole('button', { name: 'See the contrast' }))

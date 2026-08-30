@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { ContrastResearch } from '../../src/components/research/ContrastResearch.tsx'
 import { CONTRAST_RESEARCH_IDLE_NOTICE } from '../../src/domain/synthesis.ts'
 import { INITIAL_STATE, type AppAction } from '../../src/domain/loop.ts'
@@ -48,6 +49,7 @@ describe('Contrast in the app', () => {
     render(<App />)
     const focusField = await screen.findByLabelText(/what's on your mind right now/i)
     await user.type(focusField, FOCUS)
+    await selectWesternSun(user)
     await user.click(
       await screen.findByRole('button', { name: 'Open the cosmos' }),
     )

@@ -2,6 +2,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { confirmationIdForPayload } from '../../src/domain/loop.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
 import type { ModelContextTool } from '../../src/webmcp/detect.ts'
@@ -31,6 +32,7 @@ describe('agent fallback and confirmation UI', () => {
     ).toBeInTheDocument()
 
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     expect(screen.getByRole('heading', { name: 'Cosmos' })).toBeInTheDocument()
     expect(
@@ -125,6 +127,134 @@ describe('agent fallback and confirmation UI', () => {
     const agentBar = screen.getByRole('region', { name: 'Agent tools' })
     expect(within(agentBar).getByText(`${FOCUS} to a slower question`)).toBeInTheDocument()
     expect(within(agentBar).getByText('grounded to bold')).toBeInTheDocument()
+  })
+
+  it('keeps the live profile unchanged until a person gesture approves the proposal', async () => {
+    const registered = new Map<string, ModelContextTool>()
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: {
+        registerTool: async (tool: ModelContextTool) => {
+          registered.set(tool.name, tool)
+        },
+      },
+    })
+
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByText(/Agent tools are available in this browser/)
+    await waitFor(() => {
+      expect(registered.has('propose_profile_update')).toBe(true)
+      expect(registered.has('get_session_status')).toBe(true)
+    })
+
+    await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
+
+    const propose = registered.get('propose_profile_update')
+    const status = registered.get('get_session_status')
+    if (propose === undefined || status === undefined) {
+      throw new Error('expected profile-update tools')
+    }
+
+    const proposed = {
+      displayName: 'Ada',
+      focusIntention: 'a slower question',
+      tone: 'bold' as const,
+      beliefs: {
+        western: { sun: 'virgo' as const },
+        humanDesign: { type: 'generator' as const },
+        chinese: { animal: 'snake' as const },
+        bazi: { dayMaster: 'jia' as const },
+      },
+    }
+    const first = await propose.execute(proposed)
+    expect(first).toMatchObject({
+      ok: false,
+      code: 'needs_confirmation',
+      kind: 'profile_update',
+    })
+
+    const approve = await screen.findByRole('button', { name: 'Approve this request' })
+    const focusField = screen.getByRole('textbox', {
+      name: /what's on your mind/i,
+      hidden: true,
+    })
+    expect(focusField).toHaveValue(FOCUS)
+    expect(
+      screen.getByRole('radio', { name: /^Grounded/i, hidden: true }),
+    ).toBeChecked()
+    expect(
+      within(
+        screen.getByRole('group', { name: 'Sun sign', hidden: true }),
+      ).getByRole('radio', {
+        name: /^Leo$/i,
+        hidden: true,
+      }),
+    ).toBeChecked()
+    expect(screen.getByRole('dialog', { name: 'Confirm this agent request' })).toBeInTheDocument()
+
+    const pendingStatus = await status.execute({})
+    expect(pendingStatus).toMatchObject({
+      ok: true,
+      data: {
+        hasFocus: true,
+        confirmation: { status: 'pending', kind: 'profile_update' },
+      },
+    })
+
+    const replayWhilePending = await propose.execute({
+      ...proposed,
+      confirmationId: (first as { confirmationId: string }).confirmationId,
+    })
+    expect(replayWhilePending).toMatchObject({
+      ok: false,
+      code: 'needs_confirmation',
+      kind: 'profile_update',
+    })
+    expect(focusField).toHaveValue(FOCUS)
+
+    approve.click()
+    expect(focusField).toHaveValue(FOCUS)
+    expect(
+      screen.getByRole('button', { name: 'Approve this request' }),
+    ).toBeInTheDocument()
+    expect(await status.execute({})).toMatchObject({
+      ok: true,
+      data: { confirmation: { status: 'pending', kind: 'profile_update' } },
+    })
+
+    await user.click(screen.getByRole('button', { name: 'Approve this request' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(screen.getByLabelText(/what's on your mind/i)).toHaveValue('a slower question')
+    expect(screen.getByRole('radio', { name: /^Bold/i })).toBeChecked()
+    expect(
+      within(screen.getByRole('group', { name: 'Sun sign' })).getByRole('radio', {
+        name: /^Virgo$/i,
+      }),
+    ).toBeChecked()
+
+    const approvedStatus = await status.execute({})
+    expect(approvedStatus).toMatchObject({
+      ok: true,
+      data: { confirmation: { status: 'approved', kind: 'profile_update' } },
+    })
+
+    const consumed = await propose.execute({
+      ...proposed,
+      confirmationId: (first as { confirmationId: string }).confirmationId,
+    })
+    expect(consumed).toEqual({
+      ok: true,
+      data: proposed,
+    })
+    const stale = await propose.execute({
+      ...proposed,
+      confirmationId: (first as { confirmationId: string }).confirmationId,
+    })
+    expect(stale).toMatchObject({ ok: false, code: 'unknown_confirmation' })
   })
 
   it('moves focus into an accessible confirmation dialog and denies on Escape', async () => {
@@ -286,6 +416,7 @@ describe('agent fallback and confirmation UI', () => {
       expect(registered.has('request_plan_save')).toBe(true)
     })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
     const save = registered.get('request_plan_save')
@@ -330,6 +461,7 @@ describe('agent fallback and confirmation UI', () => {
       expect(registered.has('request_plan_save')).toBe(true)
     })
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
     const save = registered.get('request_plan_save')
@@ -365,6 +497,7 @@ describe('manual fallback still saves without agent tools', () => {
     const user = userEvent.setup()
     render(<App />)
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await user.click(screen.getByRole('button', { name: 'See the contrast' }))
     await user.click(screen.getByRole('button', { name: 'Choose your steps' }))

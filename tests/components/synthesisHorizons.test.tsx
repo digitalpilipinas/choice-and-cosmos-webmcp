@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { ContrastPhase } from '../../src/components/phases/ContrastPhase.tsx'
 import { CosmosPhase } from '../../src/components/phases/CosmosPhase.tsx'
 import { FREE_WILL_NOTE, INITIAL_STATE, fixtureDerivedProfile } from '../../src/domain/loop.ts'
@@ -25,12 +26,13 @@ function noop(): void {}
 function stateWithForecast(
   forecast: ForecastFixture | null,
   horizon: HorizonId,
+  profile: typeof PROFILE = PROFILE,
 ): AppState {
   return {
     ...INITIAL_STATE,
     phase: 'cosmos',
     horizon,
-    profile: PROFILE,
+    profile,
     forecastsByHorizon: {
       daily: horizon === 'daily' ? forecast : null,
       weekly: horizon === 'weekly' ? forecast : null,
@@ -56,11 +58,17 @@ describe('synthesis horizons', { timeout: 15_000 }, () => {
     'walks $id through evidence, interpretation, uncertainty, and the choice plan',
     async ({ id, radio, chart }) => {
       const user = userEvent.setup()
-      const forecast = generateForecast(fixtureDerivedProfile(PROFILE), id)
+      const filled = {
+        ...INITIAL_STATE.profile,
+        ...PROFILE,
+        beliefs: { western: { sun: 'leo' as const } },
+      }
+      const forecast = generateForecast(fixtureDerivedProfile(filled), id)
 
       render(<App />)
       await user.click(screen.getByRole('radio', { name: radio }))
       await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+      await selectWesternSun(user)
       await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
       await screen.findByRole('heading', { name: 'Cosmos' })
@@ -76,7 +84,7 @@ describe('synthesis horizons', { timeout: 15_000 }, () => {
       ).toBeGreaterThan(0)
       expect(screen.getByRole('heading', { name: 'Skipped lenses' })).toBeInTheDocument()
 
-      const reading = studioView(stateWithForecast(forecast, id)).reading
+      const reading = studioView(stateWithForecast(forecast, id, filled)).reading
       if (reading.status !== 'ready') {
         throw new Error('expected ready reading')
       }
@@ -91,8 +99,15 @@ describe('synthesis horizons', { timeout: 15_000 }, () => {
           ).toBeInTheDocument()
         }
       }
+      const skippedList = screen.getByRole('heading', { name: 'Skipped lenses' })
+        .closest('article')
+      expect(skippedList).not.toBeNull()
       for (const skipped of reading.skippedLenses) {
-        expect(screen.getByText(new RegExp(`^${skipped.lens}:`))).toBeInTheDocument()
+        expect(
+          within(skippedList as HTMLElement).getByText(skipped.lens, {
+            exact: false,
+          }),
+        ).toBeInTheDocument()
       }
 
       await user.click(screen.getByRole('button', { name: 'See the contrast' }))

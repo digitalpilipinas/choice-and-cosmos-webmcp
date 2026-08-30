@@ -9,7 +9,8 @@ export function ResearchBriefPanel({ brief }: { brief: ExactResearchBrief | null
         <h3 id="research-brief-heading">Research brief</h3>
         <p>
           Personalized research needs a focus and at least one self-supplied
-          belief-system module. The app does not infer missing values.
+          belief-system module. The Open the cosmos button stays off until both
+          are in the profile. The app does not infer missing values.
         </p>
       </article>
     )

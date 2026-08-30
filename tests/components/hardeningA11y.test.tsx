@@ -2,6 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import { FREE_WILL_NOTE } from '../../src/domain/loop.ts'
 import { generateForecast } from '../../src/fixtures/generateForecast.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
@@ -33,6 +34,7 @@ describe('P5 hardening a11y', () => {
     )
     render(<App />)
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
 
@@ -50,6 +52,7 @@ describe('P5 hardening a11y', () => {
     const user = userEvent.setup()
     render(<App />)
     await user.type(screen.getByLabelText(/what's on your mind/i), FOCUS)
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
     await screen.findByRole('heading', { name: 'Cosmos' })
 

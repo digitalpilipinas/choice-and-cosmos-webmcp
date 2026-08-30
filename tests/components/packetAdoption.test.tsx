@@ -1,10 +1,11 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
 import { PACKET_BOUNDS } from '../../src/domain/bounds.ts'
 import { SAMPLE_PACKET } from '../research/samplePacket.ts'
 import { clearSavedData } from '../../src/persistence/sessionStore.ts'
+import { selectHumanDesignType, selectWesternSun } from './leaveContext.ts'
 
 const FOCUS = 'protect one block of attention'
 
@@ -26,12 +27,9 @@ async function openCosmos(
   if (input.horizon === 'yearly') {
     await user.click(screen.getByRole('radio', { name: /yearly/i }))
   }
-  const sun = screen.getByRole('group', { name: 'Sun sign' })
-  await user.click(within(sun).getByRole('radio', { name: input.sun }))
+  await selectWesternSun(user, input.sun)
   if (input.projector === true) {
-    await user.click(screen.getByText('Optional cosmic details'))
-    const hd = await screen.findByRole('group', { name: 'Human Design type' })
-    await user.click(within(hd).getByRole('radio', { name: 'Projector' }))
+    await selectHumanDesignType(user, 'Projector')
   }
   await user.type(screen.getByLabelText(/what's on your mind right now/i), FOCUS)
   await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))

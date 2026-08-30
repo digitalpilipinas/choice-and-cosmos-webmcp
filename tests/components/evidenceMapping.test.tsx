@@ -2,6 +2,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import App from '../../src/App.tsx'
+import { selectWesternSun } from './leaveContext.ts'
 import {
   evidenceForSection,
   sectionsCitingEvidence,
@@ -24,8 +25,15 @@ describe('evidence mapping', () => {
 
   it('shows cited evidence IDs in Cosmos and citing section titles in Contrast', async () => {
     const user = userEvent.setup()
+    const profile = {
+      ...INITIAL_STATE.profile,
+      displayName: 'You',
+      focusIntention: FOCUS,
+      tone: 'grounded' as const,
+      beliefs: { western: { sun: 'leo' as const } },
+    }
     const forecast = generateForecast(
-      { displayName: 'You', focusIntention: FOCUS, tone: 'grounded', cosmic: {} },
+      { displayName: profile.displayName, focusIntention: FOCUS, tone: 'grounded', cosmic: {} },
       'daily',
     )
 
@@ -34,6 +42,7 @@ describe('evidence mapping', () => {
       screen.getByLabelText(/what's on your mind/i),
       FOCUS,
     )
+    await selectWesternSun(user)
     await user.click(screen.getByRole('button', { name: 'Open the cosmos' }))
 
     await screen.findByRole('heading', { name: 'Cosmos' })
@@ -42,12 +51,7 @@ describe('evidence mapping', () => {
       ...INITIAL_STATE,
       phase: 'cosmos',
       horizon: 'daily',
-      profile: {
-        displayName: 'You',
-        focusIntention: FOCUS,
-        tone: 'grounded',
-        beliefs: {},
-      },
+      profile,
       forecastsByHorizon: {
         daily: forecast,
         weekly: null,
