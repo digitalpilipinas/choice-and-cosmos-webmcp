@@ -1,0 +1,285 @@
+// @vitest-environment node
+import { describe, expect, it, vi } from 'vitest'
+import { handleResearchRequest, MAX_RESEARCH_BODY_BYTES } from '../../server/research/handler.ts'
+import { GEMINI_INTERACTIONS_URL } from '../../server/research/gemini.ts'
+import { liveDeps, samplePersonalized, TEST_KEY } from './helpers.ts'
+
+function post(body: unknown, signal?: AbortSignal): Request {
+  return new Request('http://choice.local/research', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+}
+
+describe('research handler', () => {
+  it('rejects non-POST methods without adding CORS or auth headers', async () => {
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', { method: 'GET' }),
+      { env: {} },
+    )
+    expect(response.status).toBe(405)
+    expect(response.headers.get('access-control-allow-origin')).toBeNull()
+    expect(response.headers.get('www-authenticate')).toBeNull()
+    const body = (await response.json()) as { outcome: string; code: string }
+    expect(body).toMatchObject({ outcome: 'error', code: 'invalid_input' })
+  })
+
+  it('returns invalid_input for malformed JSON and bad schema', async () => {
+    const malformed = await handleResearchRequest(
+      new Request('http://choice.local/research', {
+        method: 'POST',
+        body: '{',
+        headers: { 'Content-Type': 'application/json' },
+      }),
+      { env: {} },
+    )
+    expect(malformed.status).toBe(400)
+    expect(await malformed.json()).toMatchObject({
+      outcome: 'error',
+      code: 'invalid_input',
+    })
+
+    const schema = await handleResearchRequest(
+      post({ horizon: 'daily' }),
+      { env: {} },
+    )
+    expect(schema.status).toBe(400)
+    expect(await schema.json()).toMatchObject({
+      outcome: 'error',
+      code: 'invalid_input',
+    })
+  })
+
+  it('returns invalid_input for an over-limit body without echoing the payload', async () => {
+    const oversized = `${'{"pad":"'}${'x'.repeat(MAX_RESEARCH_BODY_BYTES)}}`
+    expect(new TextEncoder().encode(oversized).byteLength).toBeGreaterThan(
+      MAX_RESEARCH_BODY_BYTES,
+    )
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: oversized,
+      }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as {
+      outcome: string
+      code: string
+      reason: string
+    }
+    expect(body).toEqual({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Body exceeds the maximum allowed size.',
+    })
+    expect(JSON.stringify(body)).not.toContain('xxxx')
+  })
+
+  it('cancels the body reader once the size limit is exceeded', async () => {
+    let cancelled = false
+    const oversizeChunk = new Uint8Array(MAX_RESEARCH_BODY_BYTES + 1)
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(oversizeChunk)
+        controller.enqueue(oversizeChunk)
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    const init: RequestInit & { duplex: 'half' } = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+      duplex: 'half',
+    }
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', init),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Body exceeds the maximum allowed size.',
+    })
+    expect(cancelled).toBe(true)
+  })
+
+  it('rejects a missing JSON content type', async () => {
+    const response = await handleResearchRequest(
+      new Request('http://choice.local/research', {
+        method: 'POST',
+        body: JSON.stringify({ horizon: 'daily', query: 'stay with the draft' }),
+      }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    expect(await response.json()).toMatchObject({
+      outcome: 'error',
+      code: 'invalid_input',
+      reason: 'Content-Type must be application/json.',
+    })
+  })
+
+  it('returns fixture evidence only for explicit fixture mode', async () => {
+    const fetchImpl = vi.fn()
+    const response = await handleResearchRequest(
+      post({ horizon: 'weekly', query: 'protect one block of attention', mode: 'fixture' }),
+      { env: {}, fetchImpl },
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string; exhaustive: boolean }
+    }
+    expect(body.outcome).toBe('ready')
+    expect(body.coverage.mode).toBe('fixture')
+    expect(body.coverage.exhaustive).toBe(false)
+  })
+
+  it('fails closed for auto mode when live research is disabled', async () => {
+    const fetchImpl = vi.fn()
+    const response = await handleResearchRequest(
+      post({ horizon: 'weekly', query: 'protect one block of attention' }),
+      { env: {}, fetchImpl },
+    )
+    expect(response.status).toBe(200)
+    expect(fetchImpl).not.toHaveBeenCalled()
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string }
+      reason: string
+    }
+    expect(body.outcome).toBe('unavailable')
+    expect(body.coverage.mode).toBe('gemini')
+    expect(body.reason).toMatch(/disabled/i)
+  })
+
+  it('returns handler_error when the clock fails after validation', async () => {
+    const response = await handleResearchRequest(
+      post({ horizon: 'yearly', query: 'name the season' }),
+      {
+        env: {},
+        now: () => {
+          throw new Error('clock exploded')
+        },
+      },
+    )
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as {
+      outcome: string
+      code: string
+      reason: string
+    }
+    expect(body).toEqual({
+      outcome: 'error',
+      code: 'handler_error',
+      reason: 'The research handler failed before a research outcome could be produced.',
+    })
+    expect(body.reason).not.toContain('clock exploded')
+  })
+
+  it('returns a V2 invalid_input bundle when schemaVersion 2 parse fails', async () => {
+    const response = await handleResearchRequest(
+      post({ schemaVersion: 2, mode: 'auto' }),
+      { env: {} },
+    )
+    expect(response.status).toBe(400)
+    const body = (await response.json()) as {
+      schemaVersion?: number
+      status?: string
+      outcome?: string
+      code?: string
+      coverage?: { mode?: string }
+    }
+    expect(body.schemaVersion).toBe(2)
+    expect(body.status).toBe('invalid_input')
+    expect(body.outcome).toBeUndefined()
+    expect(body.code).toBeUndefined()
+    expect(body.coverage?.mode).not.toBe('gemini')
+  })
+
+  it('returns a V2 unavailable bundle when the clock fails after a V2 parse', async () => {
+    const response = await handleResearchRequest(post(samplePersonalized()), {
+      env: {},
+      now: () => {
+        throw new Error('clock exploded')
+      },
+    })
+    expect(response.status).toBe(500)
+    const body = (await response.json()) as {
+      schemaVersion?: number
+      status?: string
+      reason?: string
+      outcome?: string
+      code?: string
+      coverage?: { mode?: string }
+    }
+    expect(body.schemaVersion).toBe(2)
+    expect(body.status).toBe('unavailable')
+    expect(body.reason).toBe(
+      'The research handler failed before a research outcome could be produced.',
+    )
+    expect(body.outcome).toBeUndefined()
+    expect(body.code).toBeUndefined()
+    expect(body.coverage?.mode).not.toBe('gemini')
+    expect(JSON.stringify(body)).not.toContain('clock exploded')
+  })
+
+  it('does not send Authorization or leak the test key', async () => {
+    let capturedUrl = ''
+    let capturedHeaders: Headers | undefined
+    const fetchImpl = vi.fn(async (url: string | URL, init?: RequestInit) => {
+      capturedUrl = String(url)
+      capturedHeaders = new Headers(init?.headers)
+      return new Response(
+        JSON.stringify({
+          outputs: [{ type: 'text', text: 'ok', annotations: [] }],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    })
+    const response = await handleResearchRequest(
+      post({ horizon: 'daily', query: 'stay with the draft' }),
+      {
+        ...liveDeps({ fetchImpl: fetchImpl as typeof fetch }),
+      },
+    )
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(capturedUrl).toBe(GEMINI_INTERACTIONS_URL)
+    expect(capturedHeaders).toBeDefined()
+    expect(capturedHeaders?.has('authorization')).toBe(false)
+    expect(capturedHeaders?.get('x-goog-api-key')).toBe(TEST_KEY)
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as {
+      outcome: string
+      coverage: { mode: string }
+      modelText: string
+    }
+    expect(body.outcome).toBe('partial')
+    expect(body.coverage.mode).toBe('gemini')
+    expect(body.modelText).toBe('ok')
+    const serialized = JSON.stringify(body)
+    expect(serialized).not.toContain(TEST_KEY)
+    expect(serialized).not.toContain('x-goog-api-key')
+  })
+
+  it('returns cancelled when the request signal is aborted', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    const fetchImpl = vi.fn()
+    const response = await handleResearchRequest(
+      post({ horizon: 'daily', query: 'stay with the draft' }, controller.signal),
+      { env: { GEMINI_API_KEY: TEST_KEY }, fetchImpl, signal: controller.signal },
+    )
+    expect(fetchImpl).not.toHaveBeenCalled()
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ outcome: 'cancelled' })
+  })
+})
